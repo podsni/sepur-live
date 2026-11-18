@@ -1,0 +1,11 @@
+import { build } from 'esbuild';
+import { cpSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+const out = 'dist';
+rmSync(out, { recursive: true, force: true });
+mkdirSync(out, { recursive: true });
+await build({ entryPoints: ['src/main.js'], bundle: true, minify: true, format: 'esm', target: 'es2020', outfile: `${out}/app.js`, sourcemap: true, legalComments: 'linked' });
+const css = readFileSync('node_modules/maplibre-gl/dist/maplibre-gl.css', 'utf8') + '\n' + readFileSync('src/app.css', 'utf8');
+await build({ stdin: { contents: css, loader: 'css' }, minify: true, outfile: `${out}/app.css` });
+cpSync('public', out, { recursive: true });
+writeFileSync(`${out}/index.html`, readFileSync('index.html', 'utf8'));
+console.log('built dist/');

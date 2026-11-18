@@ -1,0 +1,21 @@
+{
+  "name": "sepur-live",
+  "version": "1.0.0",
+  "description": "Live map of Indonesian trains (KRL, MRT, LRT, Whoosh, airport rail) computed from public timetables along OpenStreetMap track geometry.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && node scripts/serve.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.js",
+    "data": "python3 scripts/build_data.py --osm raw/osm_rail.json --krl raw/open-krl"
+  },
+  "dependencies": {
+    "maplibre-gl": "^5.6.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
