@@ -26,3 +26,8 @@ The data files in public/data/ are derived works and keep their own licences:
   (https://www.openstreetmap.org/copyright).
 - KRL Commuter Line timetable: Open-KRL (https://github.com/open-krl/pipeline),
   CC-BY 4.0, compiled from public KAI Commuter (kci.id) station boards.
+- MRT Jakarta, LRT Jakarta, LRT Jabodebek and Skytrain timetables: ShioriLabs
+  commute (https://github.com/ShioriLabs/commute), ODbL 1.0.
+- Intercity, regional, KA Bandara and KA Feeder timetables: GAPEKA 2026 (the
+  official KAI working timetable), parsed with Transport for Bandung's
+  Gapeka-parser (https://github.com/transportforbandung/Gapeka-parser).

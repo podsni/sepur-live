@@ -3,56 +3,108 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Engine, jakartaClock, dayType, fmt } from '../src/sched.js';
 
-const net = JSON.parse(readFileSync(new URL('../public/data/network.json', import.meta.url)));
-const krl = JSON.parse(readFileSync(new URL('../public/data/krl.json', import.meta.url)));
-const E = new Engine(net, krl);
+const rd = (f) => JSON.parse(readFileSync(new URL('../public/data/' + f, import.meta.url)));
+const net = rd('network.json'), trips = rd('trips.json'), kai = rd('kai.json');
+const E = new Engine(net, trips, kai);
 const at = (date, hh, mm) => ({ date, dow: new Date(date).getUTCDay(), sec: hh * 3600 + mm * 60 });
+const D = '2026-11-19';
 
 test('Jakarta clock is UTC+7', () => {
   const c = jakartaClock(Date.UTC(2026, 10, 18, 19, 30, 0));
-  assert.equal(c.date, '2026-11-19');
+  assert.equal(c.date, D);
   assert.equal(c.sec, 2 * 3600 + 30 * 60);
 });
 
 test('day types follow weekend and holidays', () => {
-  assert.equal(dayType('2026-11-19', net.holidays), 'weekday');
+  assert.equal(dayType(D, net.holidays), 'weekday');
   assert.equal(dayType('2026-11-21', net.holidays), 'weekend');
   assert.equal(dayType('2026-12-25', net.holidays), 'weekend');
 });
 
-test('data has the expected systems', () => {
-  for (const id of ['krl-b', 'krl-c', 'krl-r', 'krl-t', 'krl-tp', 'mrt-ns', 'lrtj-s', 'lrtjb-cb', 'lrtjb-bk', 'ka-bst', 'kcic'])
-    assert.ok(net.lines.find((l) => l.id === id), id);
-  assert.ok(krl.weekday.length > 900 && krl.weekend.length > 900);
+test('data has the expected systems and real timetables', () => {
+  for (const id of ['krl-b', 'krl-c', 'krl-r', 'krl-t', 'krl-tp', 'mrt-ns', 'lrtj-s', 'lrtjb-cb', 'lrtjb-bk', 'ka-bst', 'kcic', 'apcgk', 'kcic-f'])
+    assert.ok(E.lines.get(id), id);
+  assert.equal(E.lines.get('mrt-ns').sched, 'timetable');
+  assert.equal(E.lines.get('kcic').sched, 'frequency');
+  assert.ok(kai.lines.length > 80 && kai.daily.length > 500);
 });
 
 test('KRL train 1000 follows the real planned board times', () => {
-  const d = E.day('2026-11-19');
-  const t = d.byId.get('1000');
+  const t = E.day(D).byId.get('1000');
   assert.equal(t.sids[0], 'MRI');
-  assert.equal(fmt(t.times[0]), '05.10');
-  const s = E.state(t, t.times[0] + 60);
-  assert.equal(s.kind, 'run');
+  assert.equal(fmt(t.dep[0]), '05.10');
+  assert.equal(E.state(t, t.dep[0] + 60).kind, 'run');
 });
 
-test('weekday rush hour has hundreds of trains, 02:30 has none', () => {
-  const rush = E.running(at('2026-11-19', 7, 30));
-  assert.ok(rush.length > 100, `rush ${rush.length}`);
-  const night = E.running(at('2026-11-19', 2, 30));
-  assert.equal(night.length, 0);
-  const next = E.nextService(at('2026-11-19', 2, 30));
-  assert.ok(next && next.wait > 0);
+test('intercity GAPEKA train Argo Semeru 5 leaves Surabaya Gubeng 09.00', () => {
+  const t = E.day(D).byId.get('KA 5');
+  assert.equal(t.sids[0], 'SGU');
+  assert.equal(fmt(t.dep[0]), '09.00');
+  assert.ok(t.flags.some((f) => !(f & 1)), 'has passing points');
 });
 
-test('positions stay on the track polyline near Jabodetabek', () => {
-  for (const r of E.running(at('2026-11-19', 8, 0))) {
-    const [lng, lat] = r.s.p;
-    assert.ok(lng > 105.9 && lng < 107.9 && lat > -7.2 && lat < -5.8, r.trip.id);
+test('rush hour has hundreds of trains, 02:30 has only overnight intercity', () => {
+  const rush = E.running(at(D, 7, 30));
+  assert.ok(rush.length > 200, `rush ${rush.length}`);
+  const night = E.running(at(D, 2, 30));
+  assert.ok(night.every((r) => E.lines.get(r.trip.line).sys === 'kai' || E.lines.get(r.trip.line).sys === 'regional'));
+});
+
+test('positions are finite and headings exist', () => {
+  for (const r of E.running(at(D, 8, 0))) {
+    assert.ok(Number.isFinite(r.s.p[0]) && Number.isFinite(r.s.p[1]), r.trip.id);
+    assert.ok(Number.isFinite(r.s.bearing), r.trip.id);
   }
 });
 
-test('station departures are sorted and in the future', () => {
-  const deps = E.departures('MRI', at('2026-11-19', 17, 0));
+test('positions move continuously (no jumps > 200 m per second)', () => {
+  const t = E.day(D).byId.get('1000');
+  let prev = null;
+  for (let s = t.dep[0]; s < t.arr.at(-1); s += 1) {
+    const st = E.state(t, s); if (!st) continue;
+    if (prev) {
+      const dx = (st.p[0] - prev[0]) * 111320 * Math.cos(st.p[1] * Math.PI / 180), dy = (st.p[1] - prev[1]) * 110540;
+      assert.ok(Math.hypot(dx, dy) < 200, `jump at ${fmt(s)}`);
+    }
+    prev = st.p;
+  }
+});
+
+test('station board and full-day timetable', () => {
+  const deps = E.departures('MRI', at(D, 17, 0));
   assert.ok(deps.length > 10);
   for (let i = 1; i < deps.length; i++) assert.ok(deps[i].wait >= deps[i - 1].wait);
+  const day = E.stationDay('MRI', D);
+  assert.ok(day.rows.length > 300, 'Manggarai has hundreds of departures');
+  assert.ok(day.groups.length > 3);
+});
+
+test('line timetable grid', () => {
+  const g = E.lineGrid('krl-b', D, 0);
+  assert.ok(g.trips.length > 100 && g.rows.length >= 20);
+  const g2 = E.lineGrid('mrt-ns', D, 1);
+  assert.ok(g2.trips.length > 100);
+});
+
+test('journey planner: Bogor to Bandara Soekarno-Hatta needs a transfer', () => {
+  const j = E.plan('BOO', 'BST', D, 7 * 3600);
+  assert.ok(j.length >= 2, 'alternatives');
+  const first = j[0];
+  assert.ok(first.transfers >= 1);
+  assert.equal(first.legs.find((l) => !l.walk).from, 'BOO');
+  assert.equal(first.legs.filter((l) => !l.walk).at(-1).to, 'BST');
+  for (let i = 1; i < first.legs.length; i++) assert.ok(first.legs[i].dep >= first.legs[i - 1].arr - 1, 'legs in order');
+  assert.ok(first.arr - first.dep < 4 * 3600);
+});
+
+test('journey planner: Jakarta to Surabaya by intercity', () => {
+  const j = E.plan('GMR', 'SGU', D, 6 * 3600, 2);
+  assert.ok(j.length >= 1);
+  assert.ok(j[0].legs.some((l) => !l.walk && E.lines.get(l.trip.line).sys === 'kai'));
+});
+
+test('journey planner: MRT to LRT via interchange', () => {
+  const mrt = E.lines.get('mrt-ns').stations[0], lrt = E.lines.get('lrtjb-bk').stations[0];
+  const j = E.plan(E.lines.get('mrt-ns').stations.at(-1), lrt, D, 9 * 3600, 1);
+  assert.ok(j.length === 1 && j[0].arr > j[0].dep, `${mrt}->${lrt}`);
 });

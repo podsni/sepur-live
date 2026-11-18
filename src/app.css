@@ -151,3 +151,61 @@ svg.i{width:20px;height:20px;flex:none;fill:currentColor;display:block}
 /* map popups */
 .maplibregl-popup-content{border-radius:12px;padding:8px 10px;font:500 13px/17px var(--font);box-shadow:var(--shadow)}
 .app[data-ug] .map{filter:saturate(.9)}
+/* v2: planner, timetables, simulation */
+.cta{display:flex;align-items:center;gap:12px;text-align:left;width:100%;background:var(--card);box-shadow:var(--shadow)}
+.cta .art{width:44px;height:44px;flex:none;border-radius:12px;background:var(--info-soft);color:var(--info);display:grid;place-items:center}
+.cta .tx{flex:1;min-width:0;display:grid;gap:2px}.cta .tx b{font:600 15px/20px var(--font)}.cta .tx span{font-size:12.5px;line-height:16px;color:var(--text2)}
+.cta .chev{color:var(--text3);width:16px;height:16px}
+.planner{display:grid;gap:10px}
+.pfields{position:relative;display:grid;gap:0;border-radius:16px;background:var(--panel);padding:4px 52px 4px 4px}
+.pfield{display:flex;align-items:center;gap:10px;min-height:46px;padding:0 10px;border-radius:12px}
+.pfield+.pfield{border-top:.5px solid var(--border)}
+.pfield.on{background:var(--card);box-shadow:var(--shadow)}
+.pfield .pl{width:30px;flex:none;font:600 12px/16px var(--font);color:var(--text2)}
+.pfield .pv{flex:1;min-width:0;display:flex;align-items:center;gap:8px;min-height:44px;font:500 15px/20px var(--font)}
+.pfield .pv span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pfield .ph{color:var(--text3)}
+.pfield input{flex:1;min-width:0;height:44px;border:0;outline:0;background:none;font:400 16px/20px var(--font);color:var(--text)}
+.swap{position:absolute;right:6px;top:50%;margin-top:-20px;background:var(--card);box-shadow:var(--shadow)}
+.pwhen{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.dfield{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-radius:var(--pill);background:var(--panel);font-size:12px;color:var(--text2)}
+.dfield input{border:0;background:none;font:600 13px/16px var(--font);color:var(--text);outline:0;min-width:0}
+.dpick{display:grid;gap:8px}.drow{display:flex;gap:8px;align-items:center}
+.jrow .main b small{font-size:11px;color:var(--warn);font-weight:600}
+.jl{display:flex!important;align-items:center;gap:4px;flex-wrap:nowrap;overflow:hidden;margin-top:3px}
+.jl .lb{min-width:24px;height:20px;font-size:10.5px;border-radius:6px}.jl .ar{font-style:normal;color:var(--text3)}.jl em{font-style:normal;margin-left:6px;color:var(--text2);overflow:hidden;text-overflow:ellipsis}
+.legs{display:grid;gap:8px}
+.leg{border-radius:18px;background:var(--panel);padding:12px;display:grid;gap:6px;border-left:5px solid var(--c)}
+.leg .lh{display:flex;align-items:center;gap:10px}.leg .lh>div{flex:1;min-width:0;display:grid}.leg .lh b{font:600 14.5px/19px var(--font)}.leg .lh span{font-size:12px;color:var(--text2)}
+.leg .stop{min-height:32px;padding-top:4px;padding-bottom:4px}
+.leg .stop.mid .nm{font-size:13px;color:var(--text2)}.leg .stop.mid .tm{font-size:12.5px;font-weight:500;color:var(--text2)}
+.leg .stop.end .nm{font-weight:600}
+.walk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);padding:2px 8px}.walk svg{width:18px;height:18px}
+.seg.mini button{height:30px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}
+.ttwrap{overflow:auto;max-height:60vh;border-radius:14px;background:var(--panel);margin:0 calc(-1*var(--padx)) 0 0}
+.tt{border-collapse:separate;border-spacing:0;font-size:12.5px;font-variant-numeric:tabular-nums}
+.tt th,.tt td{padding:5px 8px;white-space:nowrap;text-align:center;border-bottom:.5px solid var(--border)}
+.tt thead th{position:sticky;top:0;background:var(--elev);z-index:2;font-weight:600}
+.tt thead th button{font-weight:600;color:var(--info)}
+.tt th.st{position:sticky;left:0;z-index:1;background:var(--panel);text-align:left;font-weight:500;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.tt thead th.st{z-index:3;background:var(--elev)}
+.tt td.e{color:var(--warn)}.tt .pass{color:var(--text3)}
+.times{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px}
+.tbtn{display:grid;justify-items:center;padding:6px 2px;border-radius:10px;background:var(--panel);border-top:3px solid var(--c)}
+.tbtn b{font:600 14px/18px var(--font);font-variant-numeric:tabular-nums}.tbtn span{font-size:10.5px;color:var(--text2);max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.tbtn.past{opacity:.45}.tbtn.e b{color:var(--warn)}
+.tog{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)}.tog input{width:18px;height:18px;accent-color:var(--primary)}
+.stop .tm{text-align:right}.stop .tm small{display:block;font-size:11px;font-weight:400;color:var(--text2)}
+.stop .tm.pass{color:var(--text3);font-weight:400;font-size:12.5px}
+.stop.passing .nm{color:var(--text3);font-size:13px}.stop.passing:after{width:6px;height:6px;left:11px;margin-top:-5px}
+.stop .eta{color:var(--ok)!important;font-weight:600!important}
+.stop.cur .eta{color:var(--info)!important}
+.simbar{position:absolute;z-index:35;left:50%;transform:translateX(-50%);top:calc(var(--safe-t) + 12px);display:flex;align-items:center;gap:8px;padding:6px 6px 6px 12px;border-radius:var(--pill);background:var(--primary);color:var(--onp);box-shadow:var(--shadow);font-size:13px;white-space:nowrap}
+.simbar svg{width:16px;height:16px}.simbar b{font-variant-numeric:tabular-nums;font-weight:600}
+.simbar .sp{display:flex;gap:2px}.simbar .sp button{height:26px;padding:0 8px;border-radius:var(--pill);font:600 12px/14px var(--font);color:rgba(255,255,255,.7)}
+.simbar .sp button[aria-pressed=true]{background:rgba(255,255,255,.2);color:#fff}
+.simbar .now{height:28px;padding:0 12px;border-radius:var(--pill);background:#fff;color:var(--primary);font:600 12px/14px var(--font)}
+@media (min-width:760px){.simbar{left:calc(var(--pane-w) + (100% - var(--pane-w))/2)}}
+@media (max-width:759px){.simbar{top:calc(var(--safe-t) + 8px);font-size:12px}.simbar .sp button{padding:0 6px}}
+.seg button{font-size:13.5px}
+.simbar .now{display:grid;place-items:center}
+@media (max-width:759px){.simbar{left:8px;right:62px;transform:none;justify-content:space-between;padding-left:10px}.simbar .dt{display:none}.simbar .sp button{padding:0 5px}}

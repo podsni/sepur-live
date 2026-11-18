@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sepur Live · Peta langsung kereta api Indonesia</title>
-<meta name="description" content="Peta langsung kereta api Indonesia: KRL Commuter Line, MRT, LRT, KA Bandara, dan Whoosh. Posisi kereta dihitung dari jadwal di atas jalur rel OpenStreetMap.">
+<meta name="description" content="Peta langsung, jadwal lengkap, dan perencana perjalanan kereta api Indonesia: KRL, MRT, LRT, KA Bandara, Whoosh, dan KA antarkota Jawa. Posisi kereta dihitung dari jadwal di atas rel OpenStreetMap.">
 <meta name="theme-color" content="#FFFFFF">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta property="og:title" content="Sepur Live">
 <meta property="og:description" content="Peta langsung kereta api Indonesia, menurut jadwal.">
 <link rel="preload" href="/data/network.json" as="fetch" crossorigin>
-<link rel="preload" href="/data/krl.json" as="fetch" crossorigin>
+<link rel="preload" href="/data/trips.json" as="fetch" crossorigin>
 <link rel="stylesheet" href="/app.css">
 <script type="module" src="/app.js"></script>
 </head>
@@ -33,6 +33,11 @@
 <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 2l11 19H1zm-1 7v6h2V9zm0 8v2h2v-2z"/></symbol>
 <symbol id="i-train" viewBox="0 0 24 24"><path d="M7 2h10a4 4 0 0 1 4 4v9a3 3 0 0 1-2.4 2.94L20 21h-2.2l-1.3-3H7.5l-1.3 3H4l1.4-3.06A3 3 0 0 1 3 15V6a4 4 0 0 1 4-4zm-2 5v4h14V7zm2.5 6.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm9 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></symbol>
 <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7zm0 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></symbol>
+<symbol id="i-route" viewBox="0 0 24 24"><path d="M6 2a3 3 0 0 1 1 5.83V13a3 3 0 0 0 3 3h4a5 5 0 0 1 4.9 4H17a3 3 0 0 0-3-2h-4a5 5 0 0 1-5-5V7.83A3 3 0 0 1 6 2zm0 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm12 0a3 3 0 0 1 3 3c0 2.2-3 5.5-3 5.5S15 9.2 15 7a3 3 0 0 1 3-3zm0 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></symbol>
+<symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 3l4 4-1.4 1.4L8 6.8V17H6V6.8L4.4 8.4 3 7zm10 18l-4-4 1.4-1.4 1.6 1.6V7h2v10.2l1.6-1.6L21 17z"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm1 3v4.6l3.2 3.2-1.4 1.4-3.8-3.8V7z"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></symbol>
+<symbol id="i-walk" viewBox="0 0 24 24"><path d="M13.5 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM10 7.5l3-.5 2.2 3.3 3 1.2-.8 1.8-3.6-1.4-1-1.5-.8 3.6 2.5 2.5V22h-2v-4.5l-2.6-2.4L9 22H7l2.4-11-1.7.8V15h-2v-4.4z"/></symbol>
 </defs></svg>
 
 <div class="app" id="app" data-screen="peta" data-loading="">
@@ -50,6 +55,7 @@
       <button type="button" id="b-zout" aria-label="Perkecil peta"><svg class="i"><use href="#i-minus"/></svg></button>
     </div>
   </div>
+  <div class="simbar" id="simbar" hidden role="status"><svg class="i"><use href="#i-clock"/></svg><b id="sim-t"></b><span class="sp"><button type="button" data-speed="1">1×</button><button type="button" data-speed="10">10×</button><button type="button" data-speed="60">60×</button><button type="button" data-speed="300">300×</button></span><button type="button" class="now" data-act="sim-stop">Sekarang</button></div>
   <div class="layers" id="layers" hidden role="dialog" aria-label="Tampilan peta"></div>
 
   <aside class="pane" id="pane" aria-label="Sepur Live">
@@ -63,6 +69,7 @@
       <div class="seg" role="tablist" aria-label="Tampilan">
         <button type="button" role="tab" data-tab="peta" aria-selected="true">Peta</button>
         <button type="button" role="tab" data-tab="jalur" aria-selected="false">Jalur</button>
+        <button type="button" role="tab" data-tab="rute" aria-selected="false">Rute</button>
         <button type="button" role="tab" data-tab="stasiun" aria-selected="false">Stasiun</button>
       </div>
     </div>
@@ -85,7 +92,7 @@
     <div class="lcard">
       <img class="lart" src="/icon.svg" width="96" height="96" alt="">
       <p class="lt" id="load-t">Menunggu kereta datang</p>
-      <p class="ls" id="load-s">Menyiapkan peta dan jadwal KRL, MRT, LRT, KA Bandara, dan Whoosh</p>
+      <p class="ls" id="load-s">Menyiapkan peta dan jadwal KRL, MRT, LRT, KA Bandara, Whoosh, dan KA antarkota</p>
       <div class="ltrack"><i id="load-bar"></i></div>
       <button type="button" class="btn primary" id="load-retry" hidden>Coba lagi</button>
     </div>
