@@ -1138,6 +1138,7 @@ function padding() {
 
 /* ---------- URL hash ---------- */
 function writeHash(push) {
+  if (S.hashLock) return; // applying a view from the URL: do not rewrite the URL meanwhile
   const f = [];
   const d = S.detail;
   if (d?.type === 'train') f.push('train=' + encodeURIComponent(d.id) + (d.date ? '&td=' + d.date : ''));
@@ -1156,6 +1157,7 @@ function readHash(initial) {
   const kv = Object.fromEntries(h.split('&').filter((x) => x.includes('=')).map((x) => x.split('=')));
   const at = h.match(/@(-?[\d.]+),(-?[\d.]+),([\d.]+)/);
   if (at && initial) S.view = { lat: +at[1], lng: +at[2], z: +at[3] };
+  else if (at && map) { const c = map.getCenter(); if (Math.abs(c.lat - at[1]) > 1e-4 || Math.abs(c.lng - at[2]) > 1e-4 || Math.abs(map.getZoom() - at[3]) > 0.01) { S.hashLock = true; try { map.jumpTo({ center: [+at[2], +at[1]], zoom: +at[3] }); } finally { S.hashLock = false; } } }
   if (kv.t && /^\d{3,4}$/.test(kv.t) && (initial || !S.at)) {
     const t = kv.t.padStart(4, '0'); const date = /^\d{4}-\d\d-\d\d$/.test(kv.d || '') ? kv.d : jakartaClock().date;
     setClock(date, +t.slice(0, 2) * 3600 + +t.slice(2) * 60, Math.min(600, Math.max(1, +kv.x || 1)));
