@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import { Engine, jakartaClock, dayType, fmt, dur, addDays, VMAX } from './sched.js';
 import FLEET from '../public/data/fleet.json';
+import { STOCK, stockKey, LEGEND, spriteCanvas, carFeatures, cabCanvas, CABW } from './stock.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -60,6 +61,7 @@ const TYPE = { krl: 'KRL Commuter Line', mrt: 'MRT (kereta perkotaan)', lrtj: 'L
 /** Name, number, type and class of a trip for cards and labels (names come from the timetable data). */
 /* ---------- rolling stock illustration + speed ---------- */
 function fleetKey(l) {
+  if (l.id === 'krl-lm') return 'lokal'; // Rangkasbitung–Merak is not electrified
   if (l.sys === 'krl' || l.id === 'g-commuter-line-yogyakarta') return 'krl';
   if (l.sys === 'mrt' || l.sys === 'lrtj' || l.sys === 'jbdb') return l.sys;
   if (l.id === 'kcic') return 'whoosh';
@@ -70,7 +72,7 @@ function fleetKey(l) {
 }
 function fleetFig(l, cls = '') {
   const f = FLEET[fleetKey(l)]; if (!f) return '';
-  return `<figure class="fleet ${cls}"><img src="${esc(f.img)}" alt="${esc(f.caption)}" loading="lazy" decoding="async" width="640" height="360"><figcaption><b>${esc(f.model)}</b><span>Ilustrasi: tipe armada yang umum dipakai, bukan unit yang sedang jalan · Foto <a href="${esc(f.source)}" target="_blank" rel="noopener">${esc(f.author)}</a>, <a href="${esc(f.licenseUrl || f.source)}" target="_blank" rel="noopener">${esc(f.license)}</a> via Wikimedia Commons</span></figcaption></figure>`;
+  return `<figure class="fleet ${cls}"><img src="${esc(f.img)}" alt="${esc(f.caption)}" loading="lazy" decoding="async" width="640" height="360"><figcaption><b>${esc(f.model)}</b><span class="form">Rangkaian umum: ${esc(STOCK[stockKey(l)].note)}</span><span>Ilustrasi: tipe armada yang umum dipakai, bukan unit yang sedang jalan · Foto <a href="${esc(f.source)}" target="_blank" rel="noopener">${esc(f.author)}</a>, <a href="${esc(f.licenseUrl || f.source)}" target="_blank" rel="noopener">${esc(f.license)}</a> via Wikimedia Commons</span></figcaption></figure>`;
 }
 const kmh = (v, l) => Math.round(Math.min(v * 3.6, VMAX[l.sys] || 350));
 /** Current estimated speed text for a trip at time t. */
@@ -81,6 +83,7 @@ function speedNow(trip, t) {
   const v = kmh(s.v, l);
   return { v, txt: `≈ ${v} km/j` };
 }
+const shortHead = (h) => h.replace(/ Bank Syariah Indonesia$/, ' BSI');
 function trainInfo(t) {
   if (t._info) return t._info;
   const l = lineOf(t.line);
@@ -89,7 +92,7 @@ function trainInfo(t) {
   const type = l.id === 'kcic-f' ? 'KA Feeder kereta cepat' : TYPE[l.sys] || 'Kereta';
   const cls = l.sys === 'kai' && /^Argo /.test(l.name) ? 'Eksekutif (kereta Argo)' : null;
   const short = isKA(l) || l.id === 'ka-bst' || l.id === 'kcic-f' ? name : t.est ? name : `${name.replace(/^Commuter Line /, 'CL ')}`;
-  return (t._info = { name, num, type, cls, short, label: `${isKA(l) ? name : num} → ${t.head}` });
+  return (t._info = { name, num, type, cls, short, label: `${isKA(l) || t.est || l.id === 'ka-bst' || l.id === 'kcic-f' ? name : num.replace(/^KA /, short + ' ')} → ${shortHead(t.head)}` });
 }
 const sysName = (s) => s.sys.map((x) => SYS_LABEL[x]).filter((v, i, a) => a.indexOf(v) === i).join(' · ');
 function dayLabel(date) { const dow = new Date(date + 'T00:00:00Z').getUTCDay(); return dayType(date, NET.holidays) === 'weekend' ? (dow === 0 || dow === 6 ? 'Akhir pekan' : 'Hari libur') : 'Hari kerja'; }
@@ -160,6 +163,8 @@ function stationFeatures() {
   }) };
 }
 const FC = (features = []) => ({ type: 'FeatureCollection', features });
+const CARZ = 14; // from this zoom trains are drawn car by car along the track
+const LWS = [[14, 5], [16, 12], [18, 30], [20, 96]]; // car body width (CSS px) by zoom
 
 // heading arrow drawn once into a canvas, tinted with an SDF icon
 function arrowImage() {
@@ -173,10 +178,12 @@ function initMap() {
   popups();
   const h = S.view || { lng: 106.83, lat: -6.24, z: window.innerWidth < 760 ? 9.6 : 10.4 };
   map = new maplibregl.Map({ container: 'map', style: STYLE, center: [h.lng, h.lat], zoom: h.z, attributionControl: { compact: true }, maxPitch: 70, dragRotate: true, hash: false });
-  map.on('error', (e) => console.warn('map', e?.error?.message || e));
+  map.on('error', (e) => { console.warn('map', e?.error?.message || e); (window.__mapErr ||= []).push(String(e?.error?.message || e)); });
   map.once('load', () => {
     const before = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
     map.addImage('sepur-arrow', arrowImage(), { sdf: true, pixelRatio: 2 });
+    const dpr = Math.max(2, Math.min(3, Math.ceil(window.devicePixelRatio || 1)));
+    for (const k of Object.keys(STOCK)) { for (const rear of [0, 1]) { const cb = cabCanvas(k, rear, dpr); map.addImage((rear ? 'tail-' : 'cab-') + k, cb.canvas.getContext('2d').getImageData(0, 0, cb.canvas.width, cb.canvas.height), { pixelRatio: dpr }); } const sp = spriteCanvas(k, dpr); map.addImage('tr-' + k, sp.canvas.getContext('2d').getImageData(0, 0, sp.canvas.width, sp.canvas.height), { pixelRatio: dpr }); }
     map.addSource('net', { type: 'geojson', data: FC(NET.net.map((n) => ({ type: 'Feature', properties: { m: n.m }, geometry: { type: 'LineString', coordinates: n.c } }))) });
     map.addLayer({ id: 'net', type: 'line', source: 'net', paint: { 'line-color': '#B9B9C0', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 12, 1.6, 16, 3] } }, before);
     map.addSource('tun', { type: 'geojson', data: FC(NET.tunnels.map((c) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: c } }))) });
@@ -195,24 +202,39 @@ function initMap() {
       'circle-color': '#fff', 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 1.4, 14, 2.6] } });
     map.addLayer({ id: 'st-l', type: 'symbol', source: 'stations', minzoom: 11.5, layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': 11.5, 'text-offset': [0, 1.1], 'text-anchor': 'top', 'text-optional': true }, paint: { 'text-color': '#3a3a40', 'text-halo-color': '#fff', 'text-halo-width': 1.6 } });
     map.addSource('trains', { type: 'geojson', data: FC() });
-    map.addLayer({ id: 'tr-halo', type: 'circle', source: 'trains', filter: ['==', ['get', 'sel'], 1], paint: { 'circle-radius': 19, 'circle-color': ['get', 'color'], 'circle-opacity': 0.22 } });
-    map.addLayer({ id: 'tr-a', type: 'symbol', source: 'trains', filter: ['==', ['get', 'mv'], 1], layout: { 'icon-image': 'sepur-arrow', 'icon-rotate': ['get', 'b'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.55, 8, 0.75, 11, 1.1, 15, 1.5] }, paint: { 'icon-color': '#1d1d22', 'icon-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1] } });
-    map.addLayer({ id: 'tr-c', type: 'circle', source: 'trains', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3, 8, 5, 11, 8.5, 15, 12], 'circle-color': ['get', 'color'], 'circle-stroke-color': '#1d1d22', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 14, 2.5], 'circle-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1], 'circle-stroke-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1] } });
-    map.addLayer({ id: 'tr-t', type: 'symbol', source: 'trains', minzoom: 10, layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 7.5, 15, 10], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['get', 'tc'], 'text-opacity': ['case', ['==', ['get', 'dim'], 1], 0.3, 1] } });
-    map.addLayer({ id: 'tr-n', type: 'symbol', source: 'trains', minzoom: 13, filter: ['==', ['get', 'dim'], 0], layout: { 'text-field': ['get', 'nm'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-anchor': 'left', 'text-offset': [1.5, 0], 'text-max-width': 14, 'text-optional': true, 'text-padding': 4 }, paint: { 'text-color': '#1d1d22', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } });
+    map.addSource('cars', { type: 'geojson', data: FC() });
+    const op = (o) => ['case', ['==', ['get', 'dim'], 1], o * 0.3, o];
+    const lw = (f, add = 0) => ['interpolate', ['exponential', 2], ['zoom'], ...LWS.flatMap(([zz, w]) => [zz, typeof f === 'number' ? w * f + add : add ? ['+', ['*', w, f], add] : ['*', w, f]])];
+    const isR = (r) => ['==', ['get', 'r'], r];
+    map.addLayer({ id: 'tr-halo', type: 'circle', source: 'trains', maxzoom: CARZ, filter: ['==', ['get', 'sel'], 1], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 13, 12, 22], 'circle-color': ['get', 'color'], 'circle-opacity': 0.28 } });
+    map.addLayer({ id: 'tr-ring', type: 'circle', source: 'trains', maxzoom: CARZ, filter: ['==', ['get', 'dim'], 0], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 4.5, 9, 7, 12, 10.5, 14, 12], 'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-stroke-color': ['get', 'color'], 'circle-stroke-width': 1.5, 'circle-stroke-opacity': 0.9 } });
+    map.addLayer({ id: 'tr-s', type: 'symbol', source: 'trains', maxzoom: CARZ, layout: { 'icon-image': ['concat', 'tr-', ['get', 'k']], 'icon-rotate': ['get', 'b'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['get', 'sk'], 'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.36, 9, 0.52, 11, 0.66, CARZ, 0.86] }, paint: { 'icon-opacity': op(1) } });
+    map.addLayer({ id: 'car-glow', type: 'line', source: 'cars', minzoom: CARZ, filter: ['all', ['==', ['get', 'sel'], 1], ['any', isR('car'), isR('nose')]], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': lw(2.6), 'line-opacity': 0.45, 'line-blur': 2 } });
+    map.addLayer({ id: 'car-case', type: 'line', source: 'cars', minzoom: CARZ, filter: isR('car'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': '#1d1d22', 'line-width': lw(1, 1.6), 'line-opacity': op(1) } });
+    map.addLayer({ id: 'nose-case', type: 'line', source: 'cars', minzoom: CARZ, filter: isR('nose'), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#1d1d22', 'line-width': lw(['get', 'nw'], 1.6), 'line-opacity': op(1) } });
+    map.addLayer({ id: 'car-body', type: 'line', source: 'cars', minzoom: CARZ, filter: isR('car'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': ['get', 'b'], 'line-width': lw(1), 'line-opacity': op(1) } });
+    map.addLayer({ id: 'nose', type: 'line', source: 'cars', minzoom: CARZ, filter: isR('nose'), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'c'], 'line-width': lw(['get', 'nw']), 'line-opacity': op(1) } });
+    map.addLayer({ id: 'car-s1', type: 'line', source: 'cars', minzoom: CARZ, filter: isR('car'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': ['get', 's1'], 'line-width': lw(0.42), 'line-opacity': op(1) } });
+    map.addLayer({ id: 'car-s2', type: 'line', source: 'cars', minzoom: CARZ, filter: isR('car'), layout: { 'line-cap': 'butt', 'line-join': 'round' }, paint: { 'line-color': ['get', 's2'], 'line-width': lw(0.12), 'line-opacity': op(1) } });
+    map.addLayer({ id: 'car-end', type: 'symbol', source: 'cars', minzoom: CARZ, filter: ['any', isR('cab'), isR('tail')], layout: { 'icon-image': ['get', 'ci'], 'icon-rotate': ['get', 'b'], 'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map', 'icon-anchor': 'top', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': ['interpolate', ['exponential', 2], ['zoom'], ...LWS.flatMap(([zz, w]) => [zz, w / CABW])] }, paint: { 'icon-opacity': op(1) } });
+    map.addLayer({ id: 'car-n', type: 'symbol', source: 'cars', minzoom: CARZ, filter: ['all', isR('cab'), ['!=', ['get', 'nm'], '']], layout: { 'text-field': ['get', 'nm'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-radial-offset': 1.4, 'text-variable-anchor': ['left', 'right', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right'], 'text-justify': 'auto', 'text-max-width': 16, 'text-optional': true, 'text-padding': 3, 'symbol-sort-key': ['get', 'sk'] }, paint: { 'text-color': '#1d1d22', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
+    // invisible hit target (click / hover), at the head at low zoom and the middle of the train at high zoom
+    map.addLayer({ id: 'tr-c', type: 'circle', source: 'trains', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 6, 12, 11, 16, 18], 'circle-opacity': 0, 'circle-stroke-width': 0 } });
+    map.addLayer({ id: 'tr-t', type: 'symbol', source: 'trains', minzoom: 10.5, maxzoom: CARZ, filter: ['==', ['get', 'dim'], 0], layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 10.5, 8.5, 14, 10], 'text-radial-offset': 1.25, 'text-variable-anchor': ['right', 'left', 'top', 'bottom'], 'text-optional': true, 'symbol-sort-key': ['get', 'sk'], 'text-padding': 1 }, paint: { 'text-color': ['get', 'tc'], 'text-halo-color': ['get', 'color'], 'text-halo-width': 2.4 } });
+    map.addLayer({ id: 'tr-n', type: 'symbol', source: 'trains', maxzoom: CARZ, layout: { 'text-field': ['get', 'nm'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-radial-offset': 1.6, 'text-variable-anchor': ['left', 'right', 'top', 'bottom', 'top-left', 'bottom-right'], 'text-justify': 'auto', 'text-max-width': 16, 'text-optional': true, 'text-padding': 3, 'symbol-sort-key': ['get', 'sk'] }, paint: { 'text-color': '#1d1d22', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
     jplLayers();
     map.addSource('me', { type: 'geojson', data: FC() });
     map.addLayer({ id: 'me', type: 'circle', source: 'me', paint: { 'circle-radius': 7, 'circle-color': '#2F7BF6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
     const vsrc = Object.entries(map.getStyle().sources).find(([, s]) => s.type === 'vector')?.[0];
     if (vsrc) map.addLayer({ id: 'b3d', type: 'fill-extrusion', source: vsrc, 'source-layer': 'building', minzoom: 13, layout: { visibility: 'none' }, paint: { 'fill-extrusion-color': '#DCDCE2', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8], 'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': 0.8 } }, 'net');
-    for (const id of ['tr-c', 'st-c', 'lines']) {
+    for (const id of ['tr-c', 'car-case', 'st-c', 'lines']) {
       map.on('mouseenter', id, () => (map.getCanvas().style.cursor = 'pointer'));
       map.on('mouseleave', id, () => (map.getCanvas().style.cursor = ''));
     }
     map.on('click', (e) => {
       const bb = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
-      const f = map.queryRenderedFeatures(bb, { layers: ['tr-c', 'st-c', 'lines'].concat(S.layers.jpl ? ['jpl-p', 'jpl-cl'] : []) });
-      const tr = f.find((x) => x.layer.id === 'tr-c'), st = f.find((x) => x.layer.id === 'st-c'), ln = f.find((x) => x.layer.id === 'lines');
+      const f = map.queryRenderedFeatures(bb, { layers: ['tr-c', 'car-case', 'st-c', 'lines'].concat(S.layers.jpl ? ['jpl-p', 'jpl-cl'] : []) });
+      const tr = f.find((x) => x.layer.id === 'tr-c' || x.layer.id === 'car-case'), st = f.find((x) => x.layer.id === 'st-c'), ln = f.find((x) => x.layer.id === 'lines');
       const jp = f.find((x) => x.layer.id === 'jpl-p'), jc = f.find((x) => x.layer.id === 'jpl-cl');
       if (S.tab === 'rute' && S.pick && st) { setPlace(S.pick, st.properties.id); return; }
       if (jc && !tr) { map.getSource('jpl').getClusterExpansionZoom(jc.properties.cluster_id).then((z) => map.easeTo({ center: jc.geometry.coordinates, zoom: z + 0.3 })).catch(() => {}); return; }
@@ -223,13 +245,13 @@ function initMap() {
       else closeCard();
     });
     if (matchMedia('(hover: hover)').matches) {
-      map.on('mousemove', 'tr-c', (e) => {
+      const hov = (e) => {
         const f = e.features[0]; if (!f) return;
         const trip = E.day(f.properties.date).byId.get(f.properties.id); if (!trip) return;
         const i = trainInfo(trip);
-        hoverPop.setLngLat(f.geometry.coordinates).setHTML(`<b>${esc(i.name)}</b><span>${esc(i.num)} · ke ${esc(trip.head)}</span><span>${esc(speedNow(trip, clock().sec + (trip.date === clock().date ? 0 : 86400)).txt)} <i>(perkiraan)</i></span>`).addTo(map);
-      });
-      map.on('mouseleave', 'tr-c', () => hoverPop.remove());
+        hoverPop.setLngLat(e.lngLat).setHTML(`<b>${esc(i.name)}</b><span>${esc(i.num)} · ke ${esc(trip.head)}</span><span>${esc(speedNow(trip, clock().sec + (trip.date === clock().date ? 0 : 86400)).txt)} <i>(perkiraan)</i></span>`).addTo(map);
+      };
+      for (const id of ['tr-c', 'car-case']) { map.on('mousemove', id, hov); map.on('mouseleave', id, () => hoverPop.remove()); }
     }
     map.on('dragstart', () => { if (S.follow) { S.follow = false; toast('Berhenti mengikuti kereta'); render(true); } });
     map.on('moveend', () => writeHash());
@@ -287,7 +309,10 @@ function drawTrains(run) {
   const b = map.getBounds(), pad = 0.08;
   const w = b.getWest() - pad, e = b.getEast() + pad, s = b.getSouth() - pad, n = b.getNorth() + pad;
   const feats = [];
-  const z13 = map.getZoom() >= 12.8;
+  const z = map.getZoom(), z13 = z >= 12.8, cars = z >= CARZ;
+  const cfe = [];
+  const mpp = (156543.03 * Math.cos(map.getCenter().lat * Math.PI / 180)) / 2 ** z; // metres per CSS pixel
+  const gap = Math.min(3, Math.max(0.5, mpp * 1.1));
   let selRun = null;
   for (const r of run) {
     const l = lineOf(r.trip.line);
@@ -300,10 +325,23 @@ function drawTrains(run) {
     let br = r.s.bearing;
     if (mv) bearings.set(r.trip.key, br); else br = bearings.get(r.trip.key) ?? 0;
     const dim = (S.filter !== 'all' && chipOf(l.sys) !== S.filter) || (selLine && r.trip.line !== selLine) || (jTrips && !jTrips.has(r.trip.id)) ? 1 : 0;
-    feats.push({ type: 'Feature', properties: { id: r.trip.id, date: r.trip.date, color: l.color, tc: l.text || '#fff', label: l.short.length > 3 ? '' : l.short, nm: z13 ? trainInfo(r.trip).label : '', sel: isSel ? 1 : 0, dim, mv, b: br }, geometry: { type: 'Point', coordinates: r.s.p } });
+    const k = stockKey(l);
+    const lbl = isSel || (z13 && !dim) ? trainInfo(r.trip).label : '';
+    const props = { id: r.trip.id, date: r.trip.date, color: l.color, sel: isSel ? 1 : 0, dim };
+    let p = r.s.p;
+    if (cars) {
+      const st = STOCK[k], sc = Math.max(1, (26 * mpp) / st.len); // short trains stay visible at mid zoom
+      const tr = E.trail(r.trip, r.s, st.len * sc + 1);
+      if (sc > 1) { for (let i = 0; i < tr.cum.length; i++) tr.cum[i] /= sc; }
+      p = carFeatures(k, tr, { ...props, nm: lbl, sk: isSel ? 0 : dim ? 2 : 1 }, gap / sc, cfe);
+    }
+    feats.push({ type: 'Feature', properties: { ...props, k, tc: l.text || '#fff', label: l.short.length > 3 ? '' : l.short, nm: lbl, sk: isSel ? 0 : dim ? 2 : 1, mv, b: br }, geometry: { type: 'Point', coordinates: p } });
+    if (isSel) r.mid = p;
   }
   feats.sort((a, b) => a.properties.sel - b.properties.sel || b.properties.dim - a.properties.dim);
   map.getSource('trains').setData(FC(feats));
+  if (cars || drawTrains.hadCars) map.getSource('cars').setData(FC(cfe));
+  drawTrains.hadCars = cars;
   if (S.follow && selRun && !map.isMoving()) map.jumpTo({ center: selRun.s.p });
   if (S.card && selRun && selRun.trip.id === S.card.id) cardPop.setLngLat(selRun.s.p);
 }
@@ -361,7 +399,7 @@ function cardHtml(id, date, liveOnly = false) {
   if (liveOnly) return live;
   const fl = FLEET[fleetKey(l)];
   const media = fl ? `<img class="thumb" src="${esc(fl.img)}" alt="${esc(fl.caption)}" width="640" height="360" decoding="async">` : '';
-  const credit = fl ? `<div class="fcred"><b>${esc(fl.model)}</b> · ilustrasi tipe armada yang umum dipakai · foto <a href="${esc(fl.source)}" target="_blank" rel="noopener">${esc(fl.author)}</a>, ${esc(fl.license)}</div>` : '';
+  const credit = fl ? `<div class="fcred"><b>${esc(fl.model)}</b> · rangkaian umum ${esc(STOCK[stockKey(l)].note)} · ilustrasi tipe armada yang umum dipakai · foto <a href="${esc(fl.source)}" target="_blank" rel="noopener">${esc(fl.author)}</a>, ${esc(fl.license)}</div>` : '';
   return `<div id="tcard" class="tcard" style="--c:${esc(l.color)}" role="dialog" aria-label="${esc(i.name)}">
     <div class="th">${lb(l)}<div class="tt2"><b>${esc(i.name)}</b><span>${esc(i.num)} · ${esc(i.type)}${i.cls ? ' · ' + esc(i.cls.replace(/ \(.*\)/, '')) : ''}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
     <div class="media">${media}<div class="dest"><span>Tujuan</span><b>${esc(trip.head)}</b><small>dari ${st(0)}</small><small>${fmt(trip.start)} → ${fmt(trip.end)}</small></div></div>${credit}
@@ -1108,11 +1146,21 @@ function locate() {
   }, (e) => toast(e.code === 1 ? 'Izin lokasi ditolak. Nyalakan di pengaturan browser.' : 'Lokasimu belum ketemu. Coba lagi sebentar.'), { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
 }
 
+const LEGIMG = {};
+/** Sprite turned to face right, as a data URL for the legend. */
+function legendImg(k) {
+  if (LEGIMG[k]) return LEGIMG[k];
+  const sp = spriteCanvas(k, 3), c = document.createElement('canvas');
+  c.width = sp.canvas.height; c.height = sp.canvas.width;
+  const g = c.getContext('2d'); g.translate(c.width, 0); g.rotate(Math.PI / 2); g.drawImage(sp.canvas, 0, 0);
+  return (LEGIMG[k] = c.toDataURL());
+}
 function layersPanel() {
   const el = $('#layers');
   const row = (k, t, sw) => `<label><input type="checkbox" data-layer="${k}" ${S.layers[k] ? 'checked' : ''}>${sw ? `<i class="sw" style="background:${sw}"></i>` : ''}${t}</label>`;
   el.innerHTML = `<h3>Tampilan peta <button type="button" data-act="layers-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></h3>
     <div class="grp">Kereta</div>${row('krl', 'KRL Commuter Line', '#E30A16')}${row('mrt', 'MRT Jakarta', '#CE0037')}${row('lrtj', 'LRT Jakarta', '#F16227')}${row('jbdb', 'LRT Jabodebek', '#20409A')}${row('bandara', 'KA Bandara & Skytrain', '#F2A900')}${row('whoosh', 'Whoosh & feeder', '#8C0023')}${row('regional', 'Commuter daerah', '#3B7A8C')}${row('kai', 'KA antarkota', '#6A2C91')}
+    <div class="grp">Bentuk kereta di peta <span>formasi umum, ilustrasi</span></div><div class="tleg">${LEGEND.map((k) => `<span><img src="${legendImg(k)}" alt="" height="12">${esc(STOCK[k].name)}<small>${esc(STOCK[k].model)} · ${esc(STOCK[k].note)}</small></span>`).join('')}</div>
     <div class="grp">Peta</div>${row('stations', 'Stasiun')}${row('labels', 'Nama dan kode')}${row('net', 'Jaringan rel OpenStreetMap')}
     <div class="grp">Perlintasan sebidang (JPL)</div>${row('jpl', 'Tampilkan perlintasan sebidang', '#1E9E4A')}
     ${S.layers.jpl ? jplFilterHtml() : `<div class="jleg">${Object.values(JCAT).map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}</div>`}
@@ -1230,7 +1278,7 @@ function bindUI() {
     app.toggleAttribute('data-ug', S.ug);
     map.setLayoutProperty('tun', 'visibility', S.ug ? 'visible' : 'none');
     for (const l of map.getStyle().layers) {
-      if (['net', 'tun', 'route', 'route-case', 'route-walk', 'lines-case', 'lines', 'st-c', 'st-l', 'tr-halo', 'tr-a', 'tr-c', 'tr-t', 'me', 'b3d'].includes(l.id)) continue;
+      if (['net', 'tun', 'route', 'route-case', 'route-walk', 'lines-case', 'lines', 'st-c', 'st-l', 'tr-halo', 'tr-ring', 'tr-s', 'tr-c', 'tr-t', 'tr-n', 'car-glow', 'car-case', 'nose-case', 'car-body', 'nose', 'car-s1', 'car-s2', 'car-end', 'car-n', 'me', 'b3d'].includes(l.id)) continue;
       const prop = { fill: 'fill-opacity', line: 'line-opacity', symbol: 'text-opacity', background: 'background-opacity', 'fill-extrusion': 'fill-extrusion-opacity' }[l.type];
       if (!prop) continue;
       if (S.ug) { l.__o = map.getPaintProperty(l.id, prop); map.setPaintProperty(l.id, prop, 0.25); } else map.setPaintProperty(l.id, prop, l.__o ?? (prop === 'background-opacity' ? 1 : undefined));

@@ -163,6 +163,20 @@ const bd = await p.evaluate(() => { const s = window.__sepurDebug.E.st.get('BD')
 await clickLL(p, bd); await p.waitForTimeout(1500);
 const sp = await p.evaluate(() => [document.querySelector('.sbox img')?.naturalWidth || 0, document.querySelector('.scard img')?.naturalWidth || 0, document.querySelector('.sbox')?.innerText || '']);
 check(sp[0] > 0 && sp[1] > 0 && /CC BY|CC0|Public/.test(sp[2]) && /Daop 2/.test(sp[2]), 'station photo (Wikidata/Commons) with licence in panel and popup');
+// train sprites by type (low zoom) and car-by-car trains along the track (high zoom), legend
+await p.goto(base + '/#t=0730&d=2026-11-19&@-6.2,106.84,12'); await p.reload(); await ready(p); await kai(p); await p.waitForTimeout(1500);
+{ const ks = await p.evaluate(() => [...new Set(window.__map.queryRenderedFeatures({ layers: ['tr-s'] }).map((f) => f.properties.k))]);
+  check(['krl12', 'mrt', 'jbdb'].every((k) => ks.includes(k)), 'low zoom: per-type train sprites (' + ks.join(',') + ')'); }
+await p.evaluate(() => window.__map.jumpTo({ center: [106.8505, -6.2105], zoom: 16 })); await p.waitForTimeout(1800);
+{ const r = await p.evaluate(() => { const m = window.__map, cars = m.queryRenderedFeatures({ layers: ['car-body'] }), ends = m.queryRenderedFeatures({ layers: ['car-end'] }); const by = {}; for (const f of cars) by[f.properties.id] = (by[f.properties.id] || 0) + 1; return { n: cars.length, ends: ends.length, max: Math.max(0, ...Object.values(by)), fc: window.__sepur.frameCost }; });
+  check(r.n >= 6 && r.ends >= 2 && r.max >= 6, `high zoom: trains drawn car by car with cab ends (${r.n} cars, ${r.ends} ends, frame ${r.fc} ms)`); }
+{ const pt = await p.evaluate(() => { const m = window.__map, f = m.queryRenderedFeatures({ layers: ['car-body'] })[0]; if (!f) return null; const cs = f.geometry.coordinates, q = m.project(cs[Math.floor(cs.length / 2)]), c = m.getCanvas().getBoundingClientRect(); return [q.x + c.left, q.y + c.top, f.properties.id]; });
+  if (pt) { await p.mouse.click(pt[0], pt[1]); await p.waitForTimeout(1200); }
+  check(!!pt && (await p.evaluate((id) => window.__sepurDebug.S.card?.id === id, pt?.[2])), 'click on a car opens that train'); }
+await p.evaluate(() => document.querySelector('[data-act="card-close"]')?.click());
+await p.click('#b-layers'); await p.waitForTimeout(400);
+check((await p.$$('#layers .tleg img')).length >= 10 && /KCIC400AF/.test(await p.textContent('#layers')), 'layers panel shows the train type legend');
+await p.click('#b-layers');
 check(p.errors.length === 0, 'no page errors on desktop ' + p.errors.join('; '));
 
 // night: urban trains asleep, overnight intercity runs

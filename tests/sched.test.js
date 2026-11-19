@@ -169,3 +169,33 @@ test('station extras: photos with licence, Daop and km', () => {
   assert.equal(X.s.CN.daop, 'Daop 3'); assert.equal(X.s.KYA.daop, 'Daop 5');
   assert.ok(Math.abs(X.s.CN.km[0][0] - 219.168) < 0.001);
 });
+
+test('train trail follows the track behind the head, across sections', async () => {
+  const { haversine } = await import('../src/sched.js');
+  const c = at(D, 7, 30);
+  let n = 0, multi = 0;
+  for (const r of E.running(c).slice(0, 120)) {
+    const tr = E.trail(r.trip, r.s, 240);
+    assert.ok(tr.pts.length >= 2 && tr.pts.length === tr.cum.length, 'trail has points');
+    assert.ok(Math.abs(tr.cum[tr.cum.length - 1] - 240) < 1, `trail length ${tr.cum[tr.cum.length - 1]}`);
+    assert.ok(haversine(tr.pts[0], r.s.p) < 1, 'trail starts at the train position');
+    for (let i = 1; i < tr.pts.length; i++) assert.ok(Math.abs(tr.cum[i] - tr.cum[i - 1] - haversine(tr.pts[i - 1], tr.pts[i])) < 0.5 || i === tr.pts.length - 1, 'cum matches geometry');
+    if (r.s.kind === 'run' && r.s.d < 200 && r.s.from > 0) multi++;
+    n++;
+  }
+  assert.ok(n > 50 && multi > 0, `checked ${n} trails, ${multi} reach into the previous section`);
+});
+
+test('rolling stock: typical formations per line, car features with cab ends', async () => {
+  const { STOCK, stockKey } = await import('../src/stock.js');
+  const L = (id) => E.lines.get(id);
+  assert.equal(stockKey(L('krl-b')), 'krl12'); assert.equal(STOCK.krl12.cars.length, 12);
+  assert.equal(stockKey(L('mrt-ns')), 'mrt'); assert.equal(STOCK.mrt.cars.length, 6);
+  assert.equal(stockKey(L('lrtj-s')), 'lrtj'); assert.equal(STOCK.lrtj.cars.length, 2);
+  assert.equal(stockKey(L('lrtjb-cb')), 'jbdb'); assert.equal(STOCK.jbdb.cars.length, 6);
+  assert.equal(stockKey(L('kcic')), 'whoosh'); assert.equal(STOCK.whoosh.cars.length, 8);
+  assert.equal(stockKey(L('ka-bst')), 'ea203'); assert.equal(stockKey(L('apcgk')), 'sky');
+  assert.equal(stockKey(L('krl-lm')), 'lokal', 'Merak line is diesel-hauled');
+  assert.equal(stockKey(L('g-argo-semeru')), 'argo'); assert.ok(STOCK.argo.cars[0].loco);
+  assert.equal(stockKey(L('g-taksaka')), 'ka');
+});

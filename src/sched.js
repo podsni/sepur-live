@@ -193,7 +193,43 @@ export class Engine {
     const mv = moveAt(m, t - dep[i]);
     const f = pl.len ? mv.s / pl.len : 1;
     const a = along(pl, f);
-    return { kind: 'run', from: i, next: i + 1, p: a.p, bearing: a.bearing, progress: (i + f) / (n - 1), nextStop: this.nextStopIdx(trip, i + 1), v: mv.v, vc: m.vc };
+    return { kind: 'run', from: i, next: i + 1, p: a.p, bearing: a.bearing, progress: (i + f) / (n - 1), nextStop: this.nextStopIdx(trip, i + 1), v: mv.v, vc: m.vc, d: mv.s };
+  }
+  /** Track behind the train head: [[lng, lat], ...] from the head backwards along the OSM track, `len` metres long,
+   * crossing into earlier sections as needed (so cars bend through curves). Returns { pts, cum } (cum in metres). */
+  trail(trip, s, len) {
+    const { sids } = trip, pts = [], cum = [];
+    let i, d; // section index (sids[i] -> sids[i+1]) and head distance along it
+    if (s.kind === 'run') { i = s.from; d = s.d; }
+    else if (s.at > 0) { i = s.at - 1; d = Infinity; }
+    else { i = 0; d = 0; }
+    let acc = 0;
+    const push = (q) => {
+      if (pts.length) {
+        const a = pts[pts.length - 1], dd = haversine(a, q); if (dd < 0.01) return;
+        if (acc + dd > len) { const t = (len - acc) / dd; q = [a[0] + (q[0] - a[0]) * t, a[1] + (q[1] - a[1]) * t]; acc = len; } else acc += dd;
+      }
+      pts.push(q); cum.push(acc);
+    };
+    while (i >= 0 && acc < len) {
+      const pl = this.seg(sids[i], sids[i + 1]), { coords, cum: c } = pl;
+      const dh = Math.min(d, pl.len);
+      let k = c.length - 1;
+      while (k > 0 && c[k - 1] >= dh) k--;
+      if (!pts.length) push(along(pl, pl.len ? dh / pl.len : 0).p);
+      for (let j = k - 1; j >= 0 && acc < len; j--) push(coords[j]);
+      i--; d = Infinity;
+    }
+    if (acc < len && pts.length) {
+      // before the first station: extend straight back, opposite to the direction of travel
+      const a = pts[pts.length - 1], b = pts.length > 1 ? pts[pts.length - 2] : null;
+      let dx, dy;
+      if (b) { dx = a[0] - b[0]; dy = a[1] - b[1]; }
+      else { const q = along(this.seg(sids[0], sids[1]), 0.02).p; dx = a[0] - q[0]; dy = a[1] - q[1]; }
+      const k = Math.cos(a[1] * Math.PI / 180), m = Math.hypot(dx * k, dy) * 111320 || 1, r = (len - acc) / m;
+      pts.push([a[0] + dx * r, a[1] + dy * r]); cum.push(len);
+    }
+    return { pts, cum };
   }
   /** Movement timing: the official times, smoothed over windows of >= 10 minutes because timetables are rounded
    * to whole minutes (a 1 km hop "in 35 s" is rounding, not 100+ km/h). Window ends keep their official time;

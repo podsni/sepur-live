@@ -371,3 +371,10 @@ svg.i{width:20px;height:20px;flex:none;fill:currentColor;display:block}
 @media (max-width:759px){.scard{gap:6px;padding-top:10px}.scard .th span{display:none}.scard .sph.pop img{aspect-ratio:auto;height:78px}.scard .sph.pop figcaption{font-size:9.5px;line-height:12px}}
 @media (min-width:760px){.tcard.jcard{width:330px;overflow-x:hidden;box-sizing:border-box;grid-template-columns:minmax(0,1fr)}.jcard .jgrid,.jcard .jgrid.g2{grid-template-columns:repeat(4,minmax(0,1fr))}.jcard .jgrid b{font-size:12px;line-height:15px}}
 .tcard.jcard,.tcard.scard{grid-template-columns:minmax(0,1fr)}
+
+.layers .grp span{font-weight:400;text-transform:none;letter-spacing:0;color:var(--text2);margin-left:4px}
+.tleg{display:grid;gap:5px;margin:2px 0 8px}
+.tleg span{display:grid;grid-template-columns:64px minmax(0,1fr);column-gap:8px;align-items:center;font-size:12.5px;line-height:1.25}
+.tleg img{grid-row:span 2;justify-self:start;max-width:64px;height:12px;width:auto}
+.tleg small{color:var(--text2);font-size:11px}
+.fleet figcaption .form{display:block;font-weight:600}

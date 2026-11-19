@@ -50,6 +50,7 @@ A live map, full timetables and a journey planner for Indonesian trains: KRL, MR
 
 All trains that run according to the timetable are drawn on a MapLibre GL map (OpenFreeMap vector tiles) and **recomputed every animation frame** along OSM track geometry. They accelerate out of stations, brake into stops, wait at each stop, run at constant speed through stations they pass, and show a heading arrow rotated to the track. Zoom in to see train names on the map; hover (desktop) for name, destination and speed.
 
+- **Trains look like their rolling stock.** Zoomed out, each train is a small top-down sprite of its type (KRL, MRT, LRT Jakarta, LRT Jabodebek, Whoosh, KA Bandara, Skytrain, Argo, other intercity, local) inside a ring in the line colour. From zoom 14 every train is drawn **car by car along the OSM track**, so it bends through curves, with its typical formation (KRL 8/10/12 cars, MRT 6, LRT Jakarta 2, LRT Jabodebek 6, Whoosh 8 with long noses, KA Bandara 6, Skytrain 2, intercity: locomotive + 9 coaches), simplified livery bands, a shaped cab with headlights at the leading end and tail lights at the rear. The layers panel has a legend. Formations and liveries are typical, not the unit on that trip.
 - Filter chips per system (KRL, MRT, LRT, Bandara, Whoosh, KA) with live counts.
 - **Time travel**: any date and time (`#t=0730&d=2026-11-19`) with a time bar for 1× / 10× / 60× / 300× playback and "Sekarang" to return to now.
 - 3D buildings, an underground view (tunnels dashed, map dimmed), "Lokasiku" (nearest stations), favourite station ("Stasiunku") and recent items.
@@ -305,8 +306,8 @@ sepur-live/
 │   ├── build_jpl.py           clean, merge, status, flyover/underpass, KM, Daop, photos → jpl.json
 │   └── fetch_fleet.py         rolling-stock photos → public/img/fleet + ATTRIBUTION.md
 ├── tests/
-│   ├── sched.test.js          18 unit tests (node:test)
-│   └── smoke.mjs              57 headless browser checks
+│   ├── sched.test.js          20 unit tests (node:test)
+│   └── smoke.mjs              61 headless browser checks
 ├── docs/screenshots/          images used in this README
 ├── test.sh                    build + unit + smoke against a local server
 ├── vercel.json                build settings and cache headers
@@ -377,8 +378,8 @@ npm test             # unit tests only
 node tests/smoke.mjs https://sepur-live.vercel.app /tmp   # smoke test against any URL
 ```
 
-- **18 unit tests** (`tests/sched.test.js`): Jakarta clock and day types; data has the expected systems and real timetables; KRL train 1000 matches its planned board times; Argo Semeru 5 leaves Surabaya Gubeng 09.00; rush-hour vs 02.30 counts; finite, continuous positions (no jumps > 200 m/s); station boards and full-day timetables; line grids; three planner journeys (Bogor → Bandara with a transfer, Jakarta → Surabaya, MRT → LRT); trapezoid profile covers the distance in the scheduled time; plausible speeds; next trains passing a crossing; JPL cleaning, statuses, KM/Daop and photo licences; station photos, Daop and km.
-- **57 smoke checks** (`tests/smoke.mjs`, desktop 1400×900 and mobile 390×844): animation loop, home counts, station board and full timetable with date picker, train ETAs, line grid, source labels, search, planner, journey detail and simulation, train card with image and speed, JPL toggle / persistence / search / filters / photos / flyover card, station photo in panel and popup, night view, mobile sheet and cards on screen, and zero page errors.
+- **20 unit tests** (`tests/sched.test.js`): Jakarta clock and day types; data has the expected systems and real timetables; KRL train 1000 matches its planned board times; Argo Semeru 5 leaves Surabaya Gubeng 09.00; rush-hour vs 02.30 counts; finite, continuous positions (no jumps > 200 m/s); station boards and full-day timetables; line grids; three planner journeys (Bogor → Bandara with a transfer, Jakarta → Surabaya, MRT → LRT); trapezoid profile covers the distance in the scheduled time; plausible speeds; next trains passing a crossing; JPL cleaning, statuses, KM/Daop and photo licences; station photos, Daop and km; train trails along the track across sections; typical formation per line.
+- **61 smoke checks** (`tests/smoke.mjs`, desktop 1400×900 and mobile 390×844): animation loop, home counts, station board and full timetable with date picker, train ETAs, line grid, source labels, search, planner, journey detail and simulation, train card with image and speed, JPL toggle / persistence / search / filters / photos / flyover card, station photo in panel and popup, night view, mobile sheet and cards on screen, and zero page errors.
 - CI runs install, build and unit tests on every push to `main` and on pull requests.
 
 ## ⚡ Performance
@@ -466,6 +467,7 @@ Code: [MIT](LICENSE) © 2026 Hendra Bangun Dwi R. Data and photos keep the licen
 
 ### Fitur
 
+- **Bentuk kereta sesuai jenisnya.** Saat zoom jauh, tiap kereta tampil sebagai ikon kecil sesuai jenis armadanya. Mulai zoom 14, kereta digambar per gerbong mengikuti rel (ikut menikung), dengan jumlah gerbong yang umum (KRL 8/10/12, MRT 6, LRT Jakarta 2, LRT Jabodebek 6, Whoosh 8, KA Bandara 6, Skytrain 2, KA antarkota lokomotif + 9 kereta), warna livery sederhana, kabin depan dengan lampu depan, dan lampu belakang merah. Legendanya ada di panel lapisan. Formasi dan livery adalah gambaran umum, bukan unit yang sedang jalan.
 - **Peta langsung dan animasi.** Kereta bergerak halus di atas rel, mempercepat saat berangkat, mengerem saat masuk stasiun, berhenti, lalu jalan lagi, dengan panah arah. Ada filter per sistem, mesin waktu (`#t=0730&d=2026-11-19`) dengan pemutaran 1×–300×, tampilan 3D dan bawah tanah, Lokasiku, Stasiunku, dan pencarian (stasiun, jalur, nama dan nomor kereta, nama jalan perlintasan, tempat).
 - **Kartu kereta.** Klik kereta untuk melihat nama, nomor, tujuan dan asal, posisinya sekarang, stasiun berikutnya dengan hitung mundur, **perkiraan kecepatan** (sekarang, rata-rata, puncak), dan foto tipe armada yang umum dipakai (ilustrasi, dengan kredit dan lisensi).
 - **Detail kereta.** Status langsung, daftar berhenti dengan hitung mundur, jarak tempuh, grafik kecepatan sepanjang perjalanan, dan "Putar cepat".
@@ -497,7 +499,7 @@ git clone https://github.com/podsni/sepur-live.git
 cd sepur-live
 npm ci
 npm run dev            # http://localhost:5173
-sh ./test.sh           # build + 18 uji unit + 57 uji browser
+sh ./test.sh           # build + 20 uji unit + 61 uji browser
 ```
 
 Langkah membangun ulang data ada di bagian [Rebuild the data](#rebuild-the-data-optional).
