@@ -31,3 +31,6 @@ The data files in public/data/ are derived works and keep their own licences:
 - Intercity, regional, KA Bandara and KA Feeder timetables: GAPEKA 2026 (the
   official KAI working timetable), parsed with Transport for Bandung's
   Gapeka-parser (https://github.com/transportforbandung/Gapeka-parser).
+- Rolling-stock photos in public/img/fleet/: Wikimedia Commons, each under its own
+  licence (CC0, CC BY 2.0/4.0, CC BY-SA 4.0) with author and source in ATTRIBUTION.md.
+  They are not covered by the MIT licence above.

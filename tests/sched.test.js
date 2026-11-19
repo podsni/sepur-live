@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Engine, jakartaClock, dayType, fmt } from '../src/sched.js';
+import { Engine, jakartaClock, dayType, fmt, motion, moveAt } from '../src/sched.js';
 
 const rd = (f) => JSON.parse(readFileSync(new URL('../public/data/' + f, import.meta.url)));
 const net = rd('network.json'), trips = rd('trips.json'), kai = rd('kai.json');
@@ -107,4 +107,24 @@ test('journey planner: MRT to LRT via interchange', () => {
   const mrt = E.lines.get('mrt-ns').stations[0], lrt = E.lines.get('lrtjb-bk').stations[0];
   const j = E.plan(E.lines.get('mrt-ns').stations.at(-1), lrt, D, 9 * 3600, 1);
   assert.ok(j.length === 1 && j[0].arr > j[0].dep, `${mrt}->${lrt}`);
+});
+
+test('speed profile: trapezoid covers the distance in the scheduled time', () => {
+  const m = motion(2000, 150, 0.7, 1, 1);
+  assert.ok(Math.abs(moveAt(m, 150).s - 2000) < 1e-6 && moveAt(m, 0).v === 0 && moveAt(m, 150).v === 0);
+  assert.ok(Math.abs(moveAt(m, 75).v - m.vc) < 1e-9 && m.vc > 2000 / 150);
+  let prev = -1; for (let t = 0; t <= 150; t += 5) { const s = moveAt(m, t).s; assert.ok(s >= prev); prev = s; }
+  const tight = motion(3000, 60, 0.3, 1, 1); // too tight for 0.3 m/s²: acceleration is raised, distance still fits
+  assert.ok(Math.abs(moveAt(tight, 60).s - 3000) < 1e-6);
+});
+
+test('speed estimates are plausible: Argo Semeru ~80 km/h average, KRL under 100 km/h', () => {
+  const d = E.day(D);
+  const a = E.speedProfile(d.byId.get('KA 5'));
+  assert.ok(a.D > 700e3 && a.D < 900e3, 'track distance Surabaya–Jakarta');
+  assert.ok(a.avg * 3.6 > 60 && a.avg * 3.6 < 100 && a.vmax * 3.6 <= 125);
+  const k = E.speedProfile(d.byId.get('1000'));
+  assert.ok(k.vmax * 3.6 < 100 && k.avg * 3.6 > 25);
+  const s = E.state(d.byId.get('KA 5'), 10 * 3600);
+  assert.equal(s.kind, 'run'); assert.ok(s.v * 3.6 > 40 && s.v * 3.6 < 125);
 });

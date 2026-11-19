@@ -1,5 +1,6 @@
 import maplibregl from 'maplibre-gl';
-import { Engine, jakartaClock, dayType, fmt, dur, addDays } from './sched.js';
+import { Engine, jakartaClock, dayType, fmt, dur, addDays, VMAX } from './sched.js';
+import FLEET from '../public/data/fleet.json';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -57,6 +58,29 @@ function trainName(t) {
 }
 const TYPE = { krl: 'KRL Commuter Line', mrt: 'MRT (kereta perkotaan)', lrtj: 'LRT (kereta ringan)', jbdb: 'LRT (kereta ringan)', bandara: 'Kereta bandara', whoosh: 'Kereta cepat', regional: 'KA lokal / commuter daerah', kai: 'KA antarkota' };
 /** Name, number, type and class of a trip for cards and labels (names come from the timetable data). */
+/* ---------- rolling stock illustration + speed ---------- */
+function fleetKey(l) {
+  if (l.sys === 'krl' || l.id === 'g-commuter-line-yogyakarta') return 'krl';
+  if (l.sys === 'mrt' || l.sys === 'lrtj' || l.sys === 'jbdb') return l.sys;
+  if (l.id === 'kcic') return 'whoosh';
+  if (l.id === 'ka-bst') return 'ea203';
+  if (l.id === 'apcgk') return 'sky';
+  if (l.sys === 'kai') return /^Argo /.test(l.name) ? 'argo' : 'ka';
+  return 'lokal';
+}
+function fleetFig(l, cls = '') {
+  const f = FLEET[fleetKey(l)]; if (!f) return '';
+  return `<figure class="fleet ${cls}"><img src="${esc(f.img)}" alt="${esc(f.caption)}" loading="lazy" decoding="async" width="640" height="360"><figcaption><b>${esc(f.model)}</b><span>Ilustrasi: tipe armada yang umum dipakai, bukan unit yang sedang jalan · Foto <a href="${esc(f.source)}" target="_blank" rel="noopener">${esc(f.author)}</a>, <a href="${esc(f.licenseUrl || f.source)}" target="_blank" rel="noopener">${esc(f.license)}</a> via Wikimedia Commons</span></figcaption></figure>`;
+}
+const kmh = (v, l) => Math.round(Math.min(v * 3.6, VMAX[l.sys] || 350));
+/** Current estimated speed text for a trip at time t. */
+function speedNow(trip, t) {
+  const l = lineOf(trip.line), s = E.state(trip, t);
+  if (!s || t < trip.start) return { v: null, txt: t < trip.start ? 'Belum berangkat' : 'Sudah tiba' };
+  if (s.kind === 'dwell') return { v: 0, txt: 'Berhenti · 0 km/j' };
+  const v = kmh(s.v, l);
+  return { v, txt: `≈ ${v} km/j` };
+}
 function trainInfo(t) {
   if (t._info) return t._info;
   const l = lineOf(t.line);
@@ -199,7 +223,7 @@ function initMap() {
         const f = e.features[0]; if (!f) return;
         const trip = E.day(f.properties.date).byId.get(f.properties.id); if (!trip) return;
         const i = trainInfo(trip);
-        hoverPop.setLngLat(f.geometry.coordinates).setHTML(`<b>${esc(i.name)}</b><span>${esc(i.num)} · ke ${esc(trip.head)}</span>`).addTo(map);
+        hoverPop.setLngLat(f.geometry.coordinates).setHTML(`<b>${esc(i.name)}</b><span>${esc(i.num)} · ke ${esc(trip.head)}</span><span>${esc(speedNow(trip, clock().sec + (trip.date === clock().date ? 0 : 86400)).txt)} <i>(perkiraan)</i></span>`).addTo(map);
       });
       map.on('mouseleave', 'tr-c', () => hoverPop.remove());
     }
@@ -286,7 +310,7 @@ function tick() {
   const t = $('#tick-now'); if (t) t.textContent = fmt(c.sec);
   const st = $('#train-status'); if (st && S.detail?.type === 'train') st.innerHTML = trainStatus(S.detail.id, S.detail.date);
   if (S.detail?.type === 'train') updateEta();
-  if (S.card) { const el = $('#tcard'); if (el) el.outerHTML = cardHtml(S.card.id, S.card.date); }
+  if (S.card) { const el = $('#tlive'); if (el) el.innerHTML = cardHtml(S.card.id, S.card.date, true); }
   const sb = $('#simbar');
   if (S.at) {
     app.dataset.sim = '1'; sb.hidden = false; $('#sim-t').innerHTML = `${fmt(c.sec)} WIB<span class="dt"> · ${dateNice(c.date)}</span>`;
@@ -306,7 +330,7 @@ function prevStop(trip, s) {
   for (let k = from; k >= 0; k--) if (trip.flags[k] & 1) return k;
   return null;
 }
-function cardHtml(id, date) {
+function cardHtml(id, date, liveOnly = false) {
   const f = E.find(id, clock(), date); if (!f) return '<div id="tcard" class="tcard"><b>Kereta tidak ditemukan</b></div>';
   const { trip, t } = f; const l = lineOf(trip.line), i = trainInfo(trip), s = E.state(trip, t);
   const st = (k) => esc(stOf(trip.sids[k]).name);
@@ -321,23 +345,47 @@ function cardHtml(id, date) {
     nxt = `<div class="kv"><span>Berikutnya</span><b>${st(k)} · ${fmt(trip.arr[k])} <em>(${mins(trip.arr[k] - t)})</em></b></div>`;
   }
   const pct = Math.round((s ? s.progress : t > trip.end ? 1 : 0) * 100);
-  return `<div id="tcard" class="tcard" style="--c:${esc(l.color)}" role="dialog" aria-label="${esc(i.name)}">
-    <div class="th">${lb(l)}<div class="tt2"><b>${esc(i.name)}</b><span>${esc(i.num)} · ${esc(i.type)}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
-    <div class="dest"><span>Tujuan</span><b>${esc(trip.head)}</b><small>dari ${st(0)} · ${fmt(trip.start)} → ${fmt(trip.end)}</small></div>
-    <div class="nowl">${now}</div>${nxt}
+  const sp = E.speedProfile(trip), vn = speedNow(trip, t);
+  const vtxt = vn.v == null ? esc(vn.txt) : vn.v === 0 ? 'Berhenti' : `≈ ${vn.v}<small> km/j</small>`;
+  const live = `<div class="nowl">${now}</div>${nxt}
     <div class="prog"><i style="width:${pct}%"></i></div>
-    ${i.cls ? `<div class="kv"><span>Kelas</span><b>${esc(i.cls)}</b></div>` : ''}
-    <div class="tags">${trip.est ? '<span class="badge est">Perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'}${l.fak ? '<span class="badge est">Fakultatif</span>' : ''}<span class="badge">Menurut jadwal · keterlambatan tidak terlihat</span></div>
-    <div class="acts"><button type="button" class="btn small primary" data-open="train:${esc(trip.id)}:${trip.date}">Detail lengkap</button><button type="button" class="btn small" data-act="card-follow">${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button></div></div>`;
+    <div class="spd"><div><span>Kecepatan</span><b>${vtxt}</b></div><div><span>Rata-rata</span><b>${kmh(sp.avg, l)}<small> km/j</small></b></div><div><span>Puncak</span><b>≈ ${kmh(sp.vmax, l)}<small> km/j</small></b></div></div>
+    <div class="tags">${trip.est ? '<span class="badge est">Jadwal perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'}${l.fak ? '<span class="badge est">Fakultatif</span>' : ''}<span class="badge">Posisi &amp; kecepatan perkiraan dari jadwal, bukan GPS</span></div>
+    <div class="acts"><button type="button" class="btn small primary" data-open="train:${esc(trip.id)}:${trip.date}">Detail lengkap</button><button type="button" class="btn small" data-act="card-follow">${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button></div>`;
+  if (liveOnly) return live;
+  const fl = FLEET[fleetKey(l)];
+  const media = fl ? `<img class="thumb" src="${esc(fl.img)}" alt="${esc(fl.caption)}" width="640" height="360" decoding="async">` : '';
+  const credit = fl ? `<div class="fcred"><b>${esc(fl.model)}</b> · ilustrasi tipe armada yang umum dipakai · foto <a href="${esc(fl.source)}" target="_blank" rel="noopener">${esc(fl.author)}</a>, ${esc(fl.license)}</div>` : '';
+  return `<div id="tcard" class="tcard" style="--c:${esc(l.color)}" role="dialog" aria-label="${esc(i.name)}">
+    <div class="th">${lb(l)}<div class="tt2"><b>${esc(i.name)}</b><span>${esc(i.num)} · ${esc(i.type)}${i.cls ? ' · ' + esc(i.cls.replace(/ \(.*\)/, '')) : ''}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="media">${media}<div class="dest"><span>Tujuan</span><b>${esc(trip.head)}</b><small>dari ${st(0)}</small><small>${fmt(trip.start)} → ${fmt(trip.end)}</small></div></div>${credit}
+    <div id="tlive">${live}</div></div>`;
 }
 function showCard(id, date) {
   S.card = { id, date };
   const f = E.find(id, clock(), date); if (!f) return;
   const s = E.state(f.trip, f.t);
   const p = s ? s.p : E.pos(f.trip.sids[0]);
+  const mob = innerWidth < 760;
+  const short = map.getContainer().clientHeight < 520 && !mob;
+  cardPop.options.anchor = short ? 'left' : 'bottom';
   cardPop.setLngLat(p).setHTML(cardHtml(id, date)).addTo(map);
   hoverPop.remove();
-  if (innerWidth < 760) { sheetTo('peek'); map.easeTo({ center: p, padding: { top: 300, bottom: 230, left: 16, right: 80 }, duration: 500 }); }
+  if (mob) sheetTo('peek');
+  // keep the whole card on screen: train sits just below the card, clear of the side controls and the sheet
+  requestAnimationFrame(() => {
+    const el = cardPop.getElement(); if (!el) return;
+    const ch = el.offsetHeight, c = map.getContainer(), W = c.clientWidth, H = c.clientHeight;
+    if (short) { map.easeTo({ center: p, offset: [Math.max(40, W / 2 - el.offsetWidth / 2 - 60) - W / 2, 0], duration: 450 }); return; }
+    const q = map.project(p), top = (app.dataset.sim ? 64 : 12) + ch + 22;
+    const bottom = mob ? H - 230 : H - 70;
+    const half = Math.min(170, (W - 70) / 2);
+    const okY = q.y >= top && q.y <= bottom, okX = q.x >= half + 8 && q.x <= W - half - 64;
+    if (okY && okX && !mob) return;
+    const tx = mob ? W / 2 - 28 : Math.min(Math.max(q.x, half + 8), W - half - 64);
+    const ty = Math.min(Math.max(top, mob ? top : q.y), bottom);
+    map.easeTo({ center: p, offset: [tx - W / 2, ty - H / 2], duration: 450 });
+  });
 }
 function closeCard() { S.card = null; cardPop?.remove(); }
 
@@ -523,15 +571,41 @@ function trainStatus(id, date) {
   const k = s.nextStop;
   return `Menuju ${esc(stOf(trip.sids[k]).name)}, prediksi tiba ${fmt(trip.arr[k])} (${mins(trip.arr[k] - t)})`;
 }
+function legMax(trip, i, l) {
+  const sp = E.speedProfile(trip); let k = i - 1, v = 0;
+  while (k >= 0) { v = Math.max(v, sp.legs[k].vmax); if (trip.flags[k] & 1) break; k--; }
+  return kmh(v, l);
+}
+function speedSection(trip, t, l) {
+  const sp = E.speedProfile(trip), vn = speedNow(trip, t);
+  const cap = VMAX[l.sys] || 350, top = Math.min(sp.vmax * 3.6, cap);
+  const ymax = Math.max(40, Math.ceil((top * 1.1) / 20) * 20);
+  const W = 320, H = 120, L = 30, B = 18, T0 = sp.pts[0][0], T1 = sp.pts.at(-1)[0] || T0 + 1;
+  const X = (tt) => L + ((tt - T0) / (T1 - T0)) * (W - L - 4), Y = (v) => 4 + (H - B - 4) * (1 - Math.min(v * 3.6, cap) / ymax);
+  const line = sp.pts.map(([tt, v]) => `${X(tt).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  const grid = [0, ymax / 2, ymax].map((g) => `<line x1="${L}" x2="${W - 4}" y1="${Y(g / 3.6)}" y2="${Y(g / 3.6)}" class="g"/><text x="${L - 4}" y="${Y(g / 3.6) + 3}" text-anchor="end">${g}</text>`).join('');
+  const V = E.vtimes(trip);
+  const ticks = trip.sids.map((_, i) => (trip.flags[i] & 1 && i > 0 && i < trip.sids.length - 1 ? `<line x1="${X(V.arr[i]).toFixed(1)}" x2="${X(V.arr[i]).toFixed(1)}" y1="${H - B}" y2="${H - B + 4}" class="tk"/>` : '')).join('');
+  const mid = T0 + (T1 - T0) / 2;
+  const xl = [[T0, 'start'], [mid, 'middle'], [T1, 'end']].map(([tt, a]) => `<text x="${X(tt)}" y="${H - 3}" text-anchor="${a}">${fmt(Math.round(tt))}</text>`).join('');
+  const cx = t >= T0 && t <= T1 ? X(t).toFixed(1) : -10;
+  let h = `<div class="sech"><h2>Kecepatan</h2><span>perkiraan dari jadwal, bukan GPS</span></div>`;
+  h += `<div class="facts f3 spdf"><div class="fact"><span>Sekarang</span><b id="spd-now">${esc(vn.txt)}</b></div><div class="fact"><span>Rata-rata (dengan berhenti)</span><b>${kmh(sp.avg, l)} km/j</b></div><div class="fact"><span>Rata-rata saat jalan</span><b>${kmh(sp.runAvg, l)} km/j</b></div><div class="fact"><span>Puncak perkiraan</span><b>≈ ${kmh(sp.vmax, l)} km/j</b></div><div class="fact"><span>Jarak di rel</span><b>${(sp.D / 1000).toFixed(sp.D < 1e4 ? 1 : 0)} km</b></div><div class="fact"><span>Waktu tempuh</span><b>${dur(sp.T)}</b></div></div>`;
+  h += `<figure class="spchart" style="--c:${esc(l.color)}"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafik perkiraan kecepatan ${esc(trainInfo(trip).name)} sepanjang perjalanan">${grid}<polygon points="${X(T0)},${Y(0)} ${line} ${X(T1)},${Y(0)}" class="ar"/><polyline points="${line}" class="ln"/>${ticks}${xl}<line id="spd-cur" x1="${cx}" x2="${cx}" y1="4" y2="${H - B}" class="cur"/></svg>
+  <figcaption>km/j menurut waktu · garis kecil = stasiun berhenti · garis putus = sekarang. Dihitung dari jarak rel OpenStreetMap dan waktu jadwal dengan profil percepatan/pengereman khas ${esc(SYS_LABEL[l.sys] || 'kereta')}; jadwal dibulatkan per menit, jadi angka per segmen bisa meleset.</figcaption></figure>`;
+  return h;
+}
 function trainDetail(id) {
   const f = E.find(id, clock(), S.detail.date); if (!f) return notFound(S.kaiState === 'loading' ? 'Memuat jadwal…' : 'Kereta ini tidak ada di jadwal');
   const { trip, t } = f; const l = lineOf(trip.line); const s = E.state(trip, t);
   const hasPass = trip.flags.some((x) => !(x & 1));
   const info = trainInfo(trip);
   let h = `<div class="dhead">${lb(l)}<div class="t"><b>${esc(info.name)}</b><span>${esc(info.num)} · ${esc(info.type)}</span></div></div>`;
+  h += fleetFig(l, 'big');
   h += `<div class="facts f2"><div class="fact wide"><span>Tujuan</span><b>${esc(trip.head)}</b></div><div class="fact"><span>Dari</span><b>${esc(stOf(trip.sids[0]).name)}</b></div><div class="fact"><span>Berangkat → tiba</span><b>${fmt(trip.start)} → ${fmt(trip.end)}</b></div>${info.cls ? `<div class="fact"><span>Kelas</span><b>${esc(info.cls)}</b></div>` : ''}<div class="fact"><span>Berhenti</span><b>${trip.flags.filter((x) => x & 1).length} stasiun</b></div></div>`;
   h += `<div class="card white"><b id="train-status">${trainStatus(id, S.detail.date)}</b><div class="prog" style="--c:${esc(l.color)}"><i id="train-prog" style="width:${Math.round((s ? s.progress : t > trip.end ? 1 : 0) * 100)}%"></i></div><span class="credit">${trip.est ? '<span class="badge est">Perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'} ${dateNice(trip.date)} · ${dayLabel(trip.date)} · ${fmt(trip.start)}–${fmt(trip.end)} (${dur(trip.end - trip.start)})</span></div>`;
   h += `<div class="acts"><button type="button" class="btn small${S.follow ? ' primary' : ''}" data-act="follow"><svg class="i"><use href="#i-follow"/></svg>${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button><button type="button" class="btn small" data-act="sim-train"><svg class="i"><use href="#i-play"/></svg>Putar cepat</button><button type="button" class="btn small" data-act="share"><svg class="i"><use href="#i-share"/></svg>Bagikan</button></div>`;
+  h += speedSection(trip, t, l);
   h += srcNote(l);
   const stops = trip.sids.map((sid, i) => ({ sid, i })).filter(({ i }) => S.showPass || trip.flags[i] & 1);
   h += `<div class="sech"><h2>Jadwal &amp; prediksi tiba</h2><span>${trip.flags.filter((x) => x & 1).length} berhenti${hasPass ? ` · ${trip.flags.filter((x) => !(x & 1)).length} dilewati` : ''}</span></div>`;
@@ -540,7 +614,8 @@ function trainDetail(id) {
     const stop = trip.flags[i] & 1, est = trip.flags[i] & 2;
     const a = trip.arr[i], d = trip.dep[i], first = i === 0, last = i === trip.sids.length - 1;
     const tm = !stop ? `<span class="tm pass">${est ? '~' : ''}${fmt(d)}</span>` : first ? `<span class="tm">${fmt(d)}<small>berangkat</small></span>` : last ? `<span class="tm">${est ? '~' : ''}${fmt(a)}<small>tiba</small></span>` : `<span class="tm">${fmt(a)}${d - a >= 60 ? `<small>berangkat ${fmt(d)}</small>` : ''}</span>`;
-    return `<button type="button" class="stop${stop ? '' : ' passing'}" data-i="${i}" data-open="station:${esc(sid)}"><span class="nm">${esc(stOf(sid).name)}<small class="eta"></small></span>${tm}</button>`;
+    const vl = i > 0 && stop ? legMax(trip, i, l) : '';
+    return `<button type="button" class="stop${stop ? '' : ' passing'}" data-i="${i}" data-open="station:${esc(sid)}"><span class="nm">${esc(stOf(sid).name)}<small class="eta"></small>${vl ? `<small class="vleg">maks. ≈ ${vl} km/j dari stasiun sebelumnya</small>` : ''}</span>${tm}</button>`;
   }).join('')}</div>`;
   h += `<span class="credit">Prediksi tiba dihitung dari jadwal, bukan dari posisi GPS kereta. ${hasPass ? 'Waktu bertanda ~ ditaksir dari jarak. ' : ''}Nomor peron belum tersedia di data terbuka.</span>`;
   return h;
@@ -550,6 +625,8 @@ function updateEta() {
   const f = E.find(S.detail.id, clock(), S.detail.date); if (!f) return;
   const { trip, t } = f; const s = E.state(trip, t);
   const cur = s && t >= trip.start ? (s.kind === 'dwell' ? s.at : s.next) : t < trip.start ? 0 : trip.sids.length;
+  const sn = $('#spd-now'); if (sn) sn.textContent = speedNow(trip, t).txt;
+  const sc = $('#spd-cur'); if (sc) { const sp = E.speedProfile(trip), T0 = sp.pts[0][0], T1 = sp.pts.at(-1)[0] || T0 + 1; const x = t >= T0 && t <= T1 ? (30 + ((t - T0) / (T1 - T0)) * 286).toFixed(1) : -10; sc.setAttribute('x1', x); sc.setAttribute('x2', x); }
   const pg = $('#train-prog'); if (pg) pg.style.width = Math.round((s ? s.progress : t > trip.end ? 1 : 0) * 100) + '%';
   for (const el of box.children) {
     const i = +el.dataset.i;

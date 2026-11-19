@@ -1,0 +1,14 @@
+# Kredit gambar armada
+
+Gambar di `public/img/fleet/` adalah ilustrasi tipe armada yang umum dipakai tiap layanan, bukan foto unit yang sedang jalan. Semua diambil dari Wikimedia Commons, diperkecil dan diubah ke WebP (perubahan dari aslinya).
+
+- **KRL seri JR 205 / CLI-125** (`krl.webp`): [CLI-125 & JR 205 at Manggarai.jpg](https://commons.wikimedia.org/wiki/File:CLI-125_%26_JR_205_at_Manggarai.jpg), oleh BarryRailfan-38, lisensi CC0 (http://creativecommons.org/publicdomain/zero/1.0/deed.en).
+- **MRT Jakarta seri 1000 (Nippon Sharyo)** (`mrt.webp`): [Jakarta MRT train departing from ASEAN MRT Station.jpg](https://commons.wikimedia.org/wiki/File:Jakarta_MRT_train_departing_from_ASEAN_MRT_Station.jpg), oleh VulcanSphere, lisensi CC BY 4.0 (https://creativecommons.org/licenses/by/4.0).
+- **LRV Hyundai Rotem** (`lrtj.webp`): [Hyundai Rotem Jakarta LRT, Arriving at Boulevard Utara (cropped).jpg](https://commons.wikimedia.org/wiki/File:Hyundai_Rotem_Jakarta_LRT,_Arriving_at_Boulevard_Utara_(cropped).jpg), oleh NFarras, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **LRV INKA (tanpa masinis)** (`jbdb.webp`): [Jabodebek LRV.jpg](https://commons.wikimedia.org/wiki/File:Jabodebek_LRV.jpg), oleh Dwifa Bagaskoro S A, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **KCIC400AF (CR400AF)** (`whoosh.webp`): [KCIC400AF at Tegalluar Station.jpg](https://commons.wikimedia.org/wiki/File:KCIC400AF_at_Tegalluar_Station.jpg), oleh NFarras for Transport for Bandung, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **KRL EA203 (INKA–Bombardier)** (`ea203.webp`): [Railink EA203 passing Sudirman Station.jpg](https://commons.wikimedia.org/wiki/File:Railink_EA203_passing_Sudirman_Station.jpg), oleh Irfan Muhammad, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **Skytrain Kalayang (Woojin / LEN)** (`sky.webp`): [Soetta Skytrain 9.jpg](https://commons.wikimedia.org/wiki/File:Soetta_Skytrain_9.jpg), oleh Gunawan Kartapranata, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **Lokomotif CC 206 + kereta Stainless Steel New Generation** (`argo.webp`): [Argo Semeru SSNG.jpg](https://commons.wikimedia.org/wiki/File:Argo_Semeru_SSNG.jpg), oleh Luthfi Ramadhan D, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **Lokomotif CC 206 + rangkaian kereta** (`ka.webp`): [Papandayan Train of Locomotive CC 206 16 10.jpg](https://commons.wikimedia.org/wiki/File:Papandayan_Train_of_Locomotive_CC_206_16_10.jpg), oleh TyewongX, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+- **Lokomotif CC 201 + rangkaian kereta** (`lokal.webp`): [CC 201 78 04, Semarang Tawang Station, 2025 (01).jpg](https://commons.wikimedia.org/wiki/File:CC_201_78_04,_Semarang_Tawang_Station,_2025_(01).jpg), oleh Bahnfrend, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).

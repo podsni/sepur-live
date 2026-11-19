@@ -1,0 +1,102 @@
+{
+ "krl": {
+  "img": "img/fleet/krl.webp",
+  "model": "KRL seri JR 205 / CLI-125",
+  "caption": "Rangkaian KRL Commuter Line (eks-JR 205 dan CLI-125 buatan INKA)",
+  "author": "BarryRailfan-38",
+  "license": "CC0",
+  "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+  "source": "https://commons.wikimedia.org/wiki/File:CLI-125_%26_JR_205_at_Manggarai.jpg",
+  "title": "CLI-125 & JR 205 at Manggarai.jpg"
+ },
+ "mrt": {
+  "img": "img/fleet/mrt.webp",
+  "model": "MRT Jakarta seri 1000 (Nippon Sharyo)",
+  "caption": "Kereta MRT Jakarta buatan Nippon Sharyo",
+  "author": "VulcanSphere",
+  "license": "CC BY 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Jakarta_MRT_train_departing_from_ASEAN_MRT_Station.jpg",
+  "title": "Jakarta MRT train departing from ASEAN MRT Station.jpg"
+ },
+ "lrtj": {
+  "img": "img/fleet/lrtj.webp",
+  "model": "LRV Hyundai Rotem",
+  "caption": "Kereta LRT Jakarta buatan Hyundai Rotem",
+  "author": "NFarras",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Hyundai_Rotem_Jakarta_LRT,_Arriving_at_Boulevard_Utara_(cropped).jpg",
+  "title": "Hyundai Rotem Jakarta LRT, Arriving at Boulevard Utara (cropped).jpg"
+ },
+ "jbdb": {
+  "img": "img/fleet/jbdb.webp",
+  "model": "LRV INKA (tanpa masinis)",
+  "caption": "Kereta LRT Jabodebek buatan INKA, otomatis tanpa masinis",
+  "author": "Dwifa Bagaskoro S A",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Jabodebek_LRV.jpg",
+  "title": "Jabodebek LRV.jpg"
+ },
+ "whoosh": {
+  "img": "img/fleet/whoosh.webp",
+  "model": "KCIC400AF (CR400AF)",
+  "caption": "Kereta cepat Whoosh KCIC400AF, turunan CR400AF Fuxing",
+  "author": "NFarras for Transport for Bandung",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:KCIC400AF_at_Tegalluar_Station.jpg",
+  "title": "KCIC400AF at Tegalluar Station.jpg"
+ },
+ "ea203": {
+  "img": "img/fleet/ea203.webp",
+  "model": "KRL EA203 (INKA–Bombardier)",
+  "caption": "Rangkaian KA Bandara EA203",
+  "author": "Irfan Muhammad",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Railink_EA203_passing_Sudirman_Station.jpg",
+  "title": "Railink EA203 passing Sudirman Station.jpg"
+ },
+ "sky": {
+  "img": "img/fleet/sky.webp",
+  "model": "Skytrain Kalayang (Woojin / LEN)",
+  "caption": "Kereta penghubung antarterminal Bandara Soekarno-Hatta",
+  "author": "Gunawan Kartapranata",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Soetta_Skytrain_9.jpg",
+  "title": "Soetta Skytrain 9.jpg"
+ },
+ "argo": {
+  "img": "img/fleet/argo.webp",
+  "model": "Lokomotif CC 206 + kereta Stainless Steel New Generation",
+  "caption": "Rangkaian kereta Argo stainless steel generasi baru",
+  "author": "Luthfi Ramadhan D",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Argo_Semeru_SSNG.jpg",
+  "title": "Argo Semeru SSNG.jpg"
+ },
+ "ka": {
+  "img": "img/fleet/ka.webp",
+  "model": "Lokomotif CC 206 + rangkaian kereta",
+  "caption": "KA antarkota ditarik lokomotif diesel CC 206",
+  "author": "TyewongX",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Papandayan_Train_of_Locomotive_CC_206_16_10.jpg",
+  "title": "Papandayan Train of Locomotive CC 206 16 10.jpg"
+ },
+ "lokal": {
+  "img": "img/fleet/lokal.webp",
+  "model": "Lokomotif CC 201 + rangkaian kereta",
+  "caption": "KA lokal ditarik lokomotif diesel CC 201",
+  "author": "Bahnfrend",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:CC_201_78_04,_Semarang_Tawang_Station,_2025_(01).jpg",
+  "title": "CC 201 78 04, Semarang Tawang Station, 2025 (01).jpg"
+ }
+}

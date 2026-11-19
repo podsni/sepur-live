@@ -52,10 +52,35 @@ function along(pl, f) {
   const k = Math.cos(a[1] * Math.PI / 180);
   return { p: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], bearing: (Math.atan2((b[0] - a[0]) * k, b[1] - a[1]) * 180) / Math.PI };
 }
-// smooth acceleration and braking between two stops; constant speed through passed stations
-const easeBoth = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
-const easeIn = (t) => t * t * (2 - t) * 0.5 + t * 0.5 - (t * t * (2 - t) * 0.5 - t * t * 0.5); // gentle start
-const easeOut = (t) => 1 - easeIn(1 - t);
+
+// ---------- speed model ----------
+// Typical service acceleration/braking (m/s²) per system. The schedule fixes distance (along the OSM track)
+// and running time; we fit a trapezoid: accelerate at a from a stop, cruise, brake at a into the next stop.
+// Typical cruising speed (m/s) used only to share minute-rounded timetable time sensibly between short legs.
+export const VREF = { krl: 19, mrt: 22, lrtj: 17, jbdb: 20, bandara: 22, whoosh: 75, regional: 22, kai: 27 };
+// Highest plausible service speed (km/h) per system; shown speeds are clamped to it (timetable rounding artefacts).
+export const VMAX = { krl: 100, mrt: 100, lrtj: 70, jbdb: 90, bandara: 100, whoosh: 350, regional: 120, kai: 120 };
+export const ACCEL = { krl: 0.7, mrt: 0.9, lrtj: 0.8, jbdb: 0.9, bandara: 0.6, whoosh: 0.45, regional: 0.3, kai: 0.25 };
+/** Fit a trapezoidal speed profile for distance D (m) in time T (s); sA/sB = stops at start/end. */
+export function motion(D, T, a, sA, sB) {
+  const n = (sA ? 1 : 0) + (sB ? 1 : 0);
+  if (T <= 0 || D <= 0) return { D, T, vc: 0, ae: a, ta: 0, tb: 0 };
+  if (!n) return { D, T, vc: D / T, ae: a, ta: 0, tb: 0 };
+  // D = vc*T - vc²*n/(2a)  ->  solve for vc; if the timetable is too tight, raise a so the profile still fits
+  const ae = Math.max(a, (n * 2 * D) / (T * T));
+  const k = n / (2 * ae), disc = Math.max(0, T * T - 4 * k * D);
+  const vc = (T - Math.sqrt(disc)) / (2 * k);
+  return { D, T, vc, ae, ta: sA ? vc / ae : 0, tb: sB ? vc / ae : 0 };
+}
+/** Distance covered (m) and speed (m/s) t seconds into a fitted segment. */
+export function moveAt(m, t) {
+  const { D, T, vc, ae, ta, tb } = m;
+  if (t <= 0) return { s: 0, v: ta ? 0 : vc };
+  if (t >= T) return { s: D, v: tb ? 0 : vc };
+  if (t < ta) return { s: 0.5 * ae * t * t, v: ae * t };
+  if (t > T - tb) { const r = T - t; return { s: D - 0.5 * ae * r * r, v: ae * r }; }
+  return { s: 0.5 * ae * ta * ta + vc * (t - ta), v: vc };
+}
 
 /** Normalise a packed trip [id, line, head, sids, dep, arr|null, flags|null]. */
 export function unpack(p, extra = {}) {
@@ -155,7 +180,7 @@ export class Engine {
 
   /** Position/state of a trip at service-day time t, or null if not running. */
   state(trip, t) {
-    const { dep, arr, sids, flags } = trip, n = sids.length;
+    const { sids, flags } = trip, n = sids.length, { dep, arr } = this.vtimes(trip);
     if (t < dep[0] - 90 || t > arr[n - 1]) return null;
     if (t < dep[0]) return { kind: 'dwell', at: 0, next: 1, p: this.pos(sids[0]), bearing: this.seg(sids[0], sids[1]).len ? along(this.seg(sids[0], sids[1]), 0).bearing : 0, progress: 0 };
     // binary search: last i with dep[i] <= t
@@ -164,12 +189,76 @@ export class Engine {
     const i = lo;
     if (i >= n - 1) return { kind: 'dwell', at: n - 1, next: null, p: this.pos(sids[n - 1]), bearing: 0, progress: 1 };
     if (t >= arr[i + 1]) return { kind: 'dwell', at: i + 1, next: i + 2 < n ? i + 2 : null, p: this.pos(sids[i + 1]), bearing: 0, progress: (i + 1) / (n - 1), nextStop: this.nextStopIdx(trip, i + 1) };
-    const span = arr[i + 1] - dep[i];
-    const x = span > 0 ? (t - dep[i]) / span : 1;
-    const stopA = flags[i] & 1, stopB = flags[i + 1] & 1;
-    const f = stopA && stopB ? easeBoth(x) : stopA ? easeIn(x) : stopB ? easeOut(x) : x;
-    const a = along(this.seg(sids[i], sids[i + 1]), f);
-    return { kind: 'run', from: i, next: i + 1, p: a.p, bearing: a.bearing, progress: (i + f) / (n - 1), nextStop: this.nextStopIdx(trip, i + 1) };
+    const pl = this.seg(sids[i], sids[i + 1]), m = this.segMotion(trip, i);
+    const mv = moveAt(m, t - dep[i]);
+    const f = pl.len ? mv.s / pl.len : 1;
+    const a = along(pl, f);
+    return { kind: 'run', from: i, next: i + 1, p: a.p, bearing: a.bearing, progress: (i + f) / (n - 1), nextStop: this.nextStopIdx(trip, i + 1), v: mv.v, vc: m.vc };
+  }
+  /** Movement timing: the official times, smoothed over windows of >= 10 minutes because timetables are rounded
+   * to whole minutes (a 1 km hop "in 35 s" is rounding, not 100+ km/h). Window ends keep their official time;
+   * trains do not dwell at stations they pass without stopping. */
+  vtimes(trip) {
+    if (trip._vt) return trip._vt;
+    const { sids, flags } = trip, n = sids.length, A = trip.arr.slice(), P = trip.dep.slice();
+    const l = this.lines.get(trip.line) || {}, urban = /^(krl|mrt|lrtj|jbdb|bandara)$/.test(l.sys);
+    // urban stops last ~30-40 s; minute-rounded boards often imply a full minute, which would squeeze the running time
+    for (let i = 1; i < n - 1; i++) if (!(flags[i] & 1)) A[i] = P[i]; else if (urban) A[i] = Math.max(A[i], P[i] - 40);
+    const _l = l, a = this.accelOf(trip), vr = l.id === 'kcic-f' ? VREF.regional : VREF[l.sys] || 20;
+    const anchors = [0];
+    for (let i = 1; i < n; i++) if (i === n - 1 || A[i] - P[anchors.at(-1)] >= 600) anchors.push(i);
+    for (let w = 0; w < anchors.length - 1; w++) {
+      const s0 = anchors[w], e = anchors[w + 1];
+      if (e - s0 < 2) continue;
+      let dwell = 0, ideal = 0; const id = [];
+      for (let j = s0; j < e; j++) {
+        if (j > s0) dwell += P[j] - A[j];
+        const x = this.seg(sids[j], sids[j + 1]).len / vr + ((flags[j] & 1) + (flags[j + 1] & 1)) * (vr / (2 * a));
+        id.push(x); ideal += x;
+      }
+      const R = A[e] - P[s0] - dwell;
+      if (R <= 0 || ideal <= 0) continue;
+      let t = P[s0];
+      for (let j = s0; j < e; j++) {
+        const dw = j + 1 < e ? P[j + 1] - A[j + 1] : 0;
+        t += (id[j - s0] * R) / ideal;
+        if (j + 1 < e) { A[j + 1] = t; t += dw; P[j + 1] = t; }
+      }
+    }
+    return (trip._vt = { dep: P, arr: A });
+  }
+  accelOf(trip) {
+    if (trip._a) return trip._a;
+    const l = this.lines.get(trip.line) || {};
+    return (trip._a = l.id === 'kcic-f' ? ACCEL.regional : ACCEL[l.sys] || 0.4);
+  }
+  /** Fitted motion for leg i -> i+1 of a trip (cached on the trip). */
+  segMotion(trip, i) {
+    const c = trip._m || (trip._m = []);
+    if (c[i]) return c[i];
+    const pl = this.seg(trip.sids[i], trip.sids[i + 1]);
+    const V = this.vtimes(trip);
+    return (c[i] = motion(pl.len, V.arr[i + 1] - V.dep[i], this.accelOf(trip), trip.flags[i] & 1, trip.flags[i + 1] & 1));
+  }
+  /** Speed summary of a whole trip: distance, average (incl. stops), per-leg cruise and a sampled v(t) curve. */
+  speedProfile(trip, samples = 240) {
+    if (trip._sp) return trip._sp;
+    const n = trip.sids.length, legs = [];
+    let D = 0, vmax = 0, run = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const m = this.segMotion(trip, i);
+      D += m.D; run += m.T; vmax = Math.max(vmax, m.vc);
+      legs.push({ i, D: m.D, T: m.T, avg: m.T > 0 ? m.D / m.T : 0, vmax: m.vc, straight: this.segs[trip.sids[i] < trip.sids[i + 1] ? trip.sids[i] + '>' + trip.sids[i + 1] : trip.sids[i + 1] + '>' + trip.sids[i]] ? false : true });
+    }
+    const V = this.vtimes(trip), T0 = V.dep[0], T1 = V.arr[n - 1], pts = [];
+    for (let k = 0; k <= samples; k++) {
+      const t = T0 + ((T1 - T0) * k) / samples;
+      let lo = 0, hi = n - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (V.dep[m] <= t) lo = m; else hi = m - 1; }
+      const v = lo >= n - 1 || t >= V.arr[lo + 1] ? 0 : moveAt(this.segMotion(trip, lo), t - V.dep[lo]).v;
+      pts.push([t, v]);
+    }
+    return (trip._sp = { D, T: T1 - T0, run, avg: T1 > T0 ? D / (T1 - T0) : 0, runAvg: run ? D / run : 0, vmax, legs, pts });
   }
   nextStopIdx(trip, i) { for (let k = i; k < trip.sids.length; k++) if (trip.flags[k] & 1) return k; return trip.sids.length - 1; }
   pos(sid) { const s = this.st.get(sid); return [s.lng, s.lat]; }

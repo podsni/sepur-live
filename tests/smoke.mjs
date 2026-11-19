@@ -107,7 +107,12 @@ const clickTrain = async (pg, id, z, tap) => {
 await p.goto(base + '/#t=1000&d=2026-11-19'); await p.reload(); await ready(p); await kai(p); await p.waitForTimeout(1000);
 const ct = await clickTrain(p, 'KA 5', 12.5);
 check(/Argo Semeru/.test(ct) && /Tujuan/i.test(ct) && /Gambir/.test(ct) && /Berikutnya/.test(ct), 'click on train shows card with name and destination');
+await p.waitForFunction(() => document.querySelector('#tcard img.thumb')?.naturalWidth > 0, null, { timeout: 10000 }).catch(() => {});
+check(await p.evaluate(() => document.querySelector('#tcard img.thumb')?.naturalWidth > 0) && /ilustrasi/i.test(ct) && /CC BY-SA|CC0|CC BY/.test(ct), 'card shows rolling-stock image with credit + licence');
+check(/Kecepatan/.test(ct) && /≈ \d+ km\/j/.test(ct) && /bukan GPS/.test(ct), 'card shows estimated speed, labelled as estimate');
 await p.click('#tcard [data-open]'); await p.waitForTimeout(1000);
+check(await p.evaluate(() => document.querySelectorAll('.spchart svg polyline').length === 1 && /km\/j/.test(document.querySelector('.spdf').textContent)), 'train detail shows speed facts and chart');
+check(await p.evaluate(() => /commons\.wikimedia\.org/.test(document.querySelector('.fleet.big a')?.href || '')), 'detail image links to its Commons source');
 check(!(await p.$('#tcard')) && /Argo Semeru/.test(await p.textContent('.dhead')) && /Tujuan/.test(await p.textContent('.facts')), 'card "Detail lengkap" opens train detail');
 await p.goto(base + '/#t=1000&d=2026-11-19'); await p.reload(); await ready(p); await kai(p);
 await p.fill('#q', 'taksaka'); await p.waitForTimeout(500);

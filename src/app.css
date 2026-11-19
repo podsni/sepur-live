@@ -252,3 +252,46 @@ svg.i{width:20px;height:20px;flex:none;fill:currentColor;display:block}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media (max-width:759px){.tcard{width:calc(100vw - 96px);max-width:320px}}
 @media (min-width:760px) and (max-width:1023px){.simbar .dt{display:none}.simbar .sp button{padding:0 6px}.simbar{gap:6px}}
+/* v4: rolling-stock illustration + speed */
+.fleet{margin:0;position:relative;border-radius:14px;overflow:hidden;background:var(--panel)}
+.fleet img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover}
+.fleet figcaption{position:absolute;left:0;right:0;bottom:0;padding:22px 10px 7px;background:linear-gradient(transparent,rgba(0,0,0,.72));color:#fff;display:grid;gap:1px}
+.fleet figcaption b{font:700 12.5px/16px var(--font)}
+.fleet figcaption span{font-size:10px;line-height:13px;opacity:.85}
+.fleet figcaption a{color:#fff;text-decoration:underline;text-underline-offset:2px}
+.fleet.small img{aspect-ratio:auto;height:112px}
+.fleet.small figcaption{padding-top:18px}
+.fleet.big{margin:2px 0 12px}
+.tcard .spd{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:6px}
+.tcard .spd>div{background:var(--panel);border-radius:10px;padding:6px 8px;display:grid;min-width:0}
+.tcard .spd span{font:600 10px/12px var(--font);text-transform:uppercase;letter-spacing:.04em;color:var(--text2)}
+.tcard .spd b{font:700 15px/20px var(--font);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tcard .spd b small{font-size:11px;font-weight:600;color:var(--text2)}
+.tcard .spd>div:first-child b{color:var(--c)}
+.tcard .spnote{font-size:10.5px;line-height:13px;color:var(--text2);margin-top:-4px}
+.hpop .maplibregl-popup-content i{font-style:normal;opacity:.7}
+.facts.f3{grid-template-columns:repeat(3,1fr)}
+@media (max-width:420px){.facts.f3{grid-template-columns:repeat(2,1fr)}}
+.spchart{margin:8px 0 6px;background:var(--card,#fff);border-radius:14px;padding:10px 10px 8px;box-shadow:0 0 0 .5px var(--border)}
+.spchart svg{display:block;width:100%;height:auto;overflow:visible}
+.spchart text{font:500 9px var(--font);fill:var(--text2);font-variant-numeric:tabular-nums}
+.spchart .g{stroke:var(--border);stroke-width:.6}
+.spchart .ar{fill:var(--c);opacity:.14}
+.spchart .ln{fill:none;stroke:var(--c);stroke-width:1.6;stroke-linejoin:round}
+.spchart .tk{stroke:var(--text2);stroke-width:.8}
+.spchart .cur{stroke:var(--text);stroke-width:1;stroke-dasharray:3 2}
+.spchart figcaption{font-size:11px;line-height:15px;color:var(--text2);margin-top:6px}
+.stop .vleg{display:block;font-size:10.5px;color:var(--text2);font-weight:400}
+@media (max-width:759px){.fleet.small img{height:96px}}
+@media (max-height:520px){.fleet.small{display:none}}
+.tcard .media{display:grid;grid-template-columns:112px 1fr;gap:10px;align-items:stretch}
+.tcard .media .thumb{width:112px;height:100%;min-height:72px;max-height:84px;object-fit:cover;border-radius:10px;background:var(--panel)}
+.tcard .media .dest{gap:0;padding:6px 10px;min-width:0}
+.tcard .media .dest b{font-size:16px;line-height:20px;overflow-wrap:anywhere}
+.tcard .fcred{font-size:10px;line-height:13px;color:var(--text2);margin-top:-3px}
+.tcard .fcred b{font-weight:600;color:var(--text)}
+.tcard .fcred a{color:inherit;text-decoration:underline}
+#tlive{display:grid;gap:8px}
+@media (max-width:380px){.tcard .media{grid-template-columns:92px 1fr}.tcard .media .thumb{width:92px}}
+@media (max-height:520px){.tcard .media{grid-template-columns:1fr}.tcard .media .thumb,.tcard .fcred{display:none}}
+@media (max-height:520px) and (min-width:760px){.tcard{gap:6px;padding-top:10px}.tcard .media .dest{padding:4px 8px}.tcard .media .dest small:last-child,.tcard .prog,.tcard .tags .badge.real{display:none}.tcard .acts .btn{height:36px}}
