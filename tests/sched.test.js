@@ -128,3 +128,15 @@ test('speed estimates are plausible: Argo Semeru ~80 km/h average, KRL under 100
   const s = E.state(d.byId.get('KA 5'), 10 * 3600);
   assert.equal(s.kind, 'run'); assert.ok(s.v * 3.6 > 40 && s.v * 3.6 < 125);
 });
+
+test('level crossings: next trains passing a point between Manggarai and Sudirman', () => {
+  const J = rd('jpl.json');
+  assert.ok(J.x.length > 5000 && J.stats.bar > 300, 'OSM crossings extracted');
+  const x = J.x.find((r) => (r[8] === 'MRI' && r[9] === 'SUD') || (r[8] === 'SUD' && r[9] === 'MRI'));
+  assert.ok(x, 'a crossing snapped to the MRI–SUD section');
+  const ps = E.passes(x[8], x[9], x[10], at(D, 8, 0));
+  assert.ok(ps.length >= 3, 'trains pass in the morning');
+  assert.ok(ps.every((p, i) => p.dt >= -60 && p.dt <= 3 * 3600 && (i === 0 || p.dt >= ps[i - 1].dt)));
+  // the passing time lies between the scheduled departure and arrival of that leg
+  for (const p of ps) { const i = p.trip.sids.findIndex((s, k) => (s === x[8] || s === x[9]) && (p.trip.sids[k + 1] === x[8] || p.trip.sids[k + 1] === x[9])); assert.ok(p.at >= p.trip.dep[i] - 61 && p.at <= p.trip.arr[i + 1] + 61); }
+});

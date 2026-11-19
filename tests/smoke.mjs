@@ -117,6 +117,26 @@ check(!(await p.$('#tcard')) && /Argo Semeru/.test(await p.textContent('.dhead')
 await p.goto(base + '/#t=1000&d=2026-11-19'); await p.reload(); await ready(p); await kai(p);
 await p.fill('#q', 'taksaka'); await p.waitForTimeout(500);
 check(/Taksaka · KA \d+/.test(await p.textContent('#view')), 'search finds trains by name (taksaka)');
+// level crossings (JPL): toggle, persist, click, search
+await p.goto(base + '/#t=0800&d=2026-11-19&@-6.205,106.84,15.8'); await p.reload(); await ready(p); await kai(p);
+check(await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'none'), 'JPL layer off by default');
+await p.click('#b-jpl');
+await p.waitForFunction(() => window.__map.querySourceFeatures('jpl').length > 0, null, { timeout: 20000 }).catch(() => {});
+check(await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'visible' && JSON.parse(localStorage.getItem('sepur:layers')).jpl === true && /jpl=1/.test(location.hash)), 'JPL toggle on: layer visible, saved, in URL');
+await p.waitForTimeout(1500);
+const jpt = await p.evaluate(() => { const f = window.__map.queryRenderedFeatures({ layers: ['jpl-p'] }); const c = window.__map.getCanvas().getBoundingClientRect(); const q = f.length && window.__map.project(f[0].geometry.coordinates); return f.length ? [q.x + c.left, q.y + c.top] : null; });
+if (jpt) await p.mouse.click(jpt[0], jpt[1]); await p.waitForTimeout(1200);
+const jt = jpt ? await p.evaluate(() => document.querySelector('.jcard')?.innerText || '') : '';
+check(/Palang/i.test(jt) && /Lampu/i.test(jt) && /openstreetmap|OSM/i.test(jt) && /lewat/i.test(jt), 'crossing click shows card (barrier, light, OSM link, next trains)');
+await p.reload(); await ready(p); await p.waitForTimeout(1500);
+check(await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'visible'), 'JPL choice persists after reload');
+await p.click('#b-jpl'); await p.waitForTimeout(300);
+check(await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'none' && !/jpl=1/.test(location.hash)), 'JPL toggle off hides layer');
+await p.fill('#q', 'jalan guntur'); await p.waitForTimeout(2500); await p.fill('#q', 'jalan gunt'); await p.waitForTimeout(600);
+check(/Perlintasan sebidang/.test(await p.textContent('#view')), 'search finds crossings by road name');
+await p.click('[data-jpl]'); await p.waitForTimeout(1500);
+check(!!(await p.$('.jcard')) && await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'visible'), 'crossing search result opens card and turns layer on');
+await p.fill('#q', ''); await p.click('#b-jpl'); await p.waitForTimeout(300);
 check(p.errors.length === 0, 'no page errors on desktop ' + p.errors.join('; '));
 
 // night: urban trains asleep, overnight intercity runs
@@ -136,6 +156,14 @@ check(/Commuter Line Bogor/.test(mc) && /Bogor/.test(mc), 'mobile tap on train s
 const box = await m.$eval('#tcard', (e) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; });
 check(box[0] >= 0 && box[1] <= 390, 'mobile card fits the screen ' + box.map(Math.round));
 check(await m.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile: no horizontal overflow');
+await m.goto(base + '/#jpl=1&t=0800&d=2026-11-19&@-6.205,106.84,15.8'); await m.reload(); await ready(m);
+await m.waitForFunction(() => window.__map.querySourceFeatures('jpl').length > 0, null, { timeout: 20000 }).catch(() => {});
+await m.waitForTimeout(1500);
+const mj = await m.evaluate(() => { const f = window.__map.queryRenderedFeatures({ layers: ['jpl-p'] }); const c = window.__map.getCanvas().getBoundingClientRect(); const q = f.length && window.__map.project(f[0].geometry.coordinates); return f.length ? [q.x + c.left, q.y + c.top] : null; });
+if (mj) await m.touchscreen.tap(mj[0], mj[1]); await m.waitForTimeout(1500);
+const mjb = await m.evaluate(() => { const e = document.querySelector('.jcard'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.right, r.top]; });
+check(!!mjb && mjb[0] >= 0 && mjb[1] <= 390 && mjb[2] >= 0, 'mobile: URL #jpl=1 shows crossings, tap opens card on screen');
+
 
 await m.screenshot({ path: `${out}/mob-train.png` });
 await m.goto(base + '/#tab=rute&from=THB&to=BKS&pd=2026-11-19&pt=0800&t=0800&d=2026-11-19'); await m.reload(); await ready(m); await m.waitForTimeout(2000);

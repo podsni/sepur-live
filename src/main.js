@@ -200,6 +200,7 @@ function initMap() {
     map.addLayer({ id: 'tr-c', type: 'circle', source: 'trains', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3, 8, 5, 11, 8.5, 15, 12], 'circle-color': ['get', 'color'], 'circle-stroke-color': '#1d1d22', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 14, 2.5], 'circle-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1], 'circle-stroke-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1] } });
     map.addLayer({ id: 'tr-t', type: 'symbol', source: 'trains', minzoom: 10, layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 7.5, 15, 10], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['get', 'tc'], 'text-opacity': ['case', ['==', ['get', 'dim'], 1], 0.3, 1] } });
     map.addLayer({ id: 'tr-n', type: 'symbol', source: 'trains', minzoom: 13, filter: ['==', ['get', 'dim'], 0], layout: { 'text-field': ['get', 'nm'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-anchor': 'left', 'text-offset': [1.5, 0], 'text-max-width': 14, 'text-optional': true, 'text-padding': 4 }, paint: { 'text-color': '#1d1d22', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } });
+    jplLayers();
     map.addSource('me', { type: 'geojson', data: FC() });
     map.addLayer({ id: 'me', type: 'circle', source: 'me', paint: { 'circle-radius': 7, 'circle-color': '#2F7BF6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
     const vsrc = Object.entries(map.getStyle().sources).find(([, s]) => s.type === 'vector')?.[0];
@@ -210,10 +211,13 @@ function initMap() {
     }
     map.on('click', (e) => {
       const bb = [[e.point.x - 6, e.point.y - 6], [e.point.x + 6, e.point.y + 6]];
-      const f = map.queryRenderedFeatures(bb, { layers: ['tr-c', 'st-c', 'lines'] });
+      const f = map.queryRenderedFeatures(bb, { layers: ['tr-c', 'st-c', 'lines'].concat(S.layers.jpl ? ['jpl-p', 'jpl-cl'] : []) });
       const tr = f.find((x) => x.layer.id === 'tr-c'), st = f.find((x) => x.layer.id === 'st-c'), ln = f.find((x) => x.layer.id === 'lines');
+      const jp = f.find((x) => x.layer.id === 'jpl-p'), jc = f.find((x) => x.layer.id === 'jpl-cl');
       if (S.tab === 'rute' && S.pick && st) { setPlace(S.pick, st.properties.id); return; }
+      if (jc && !tr) { map.getSource('jpl').getClusterExpansionZoom(jc.properties.cluster_id).then((z) => map.easeTo({ center: jc.geometry.coordinates, zoom: z + 0.3 })).catch(() => {}); return; }
       if (tr) showCard(tr.properties.id, tr.properties.date);
+      else if (jp && JPL) showJplCard(jp.properties.i);
       else if (st) open('station', st.properties.id);
       else if (ln) open('line', ln.properties.line);
       else closeCard();
@@ -250,6 +254,7 @@ function applyLayers() {
   map.setLayoutProperty('st-l', 'visibility', S.layers.stations && S.layers.labels ? 'visible' : 'none');
   map.setLayoutProperty('net', 'visibility', S.layers.net ? 'visible' : 'none');
   map.setLayoutProperty('tr-t', 'visibility', S.layers.labels ? 'visible' : 'none');
+  for (const id of ['jpl-cl', 'jpl-cn', 'jpl-p', 'jpl-x']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', S.layers.jpl ? 'visible' : 'none');
   LS.set('layers', S.layers);
 }
 
@@ -311,6 +316,7 @@ function tick() {
   const st = $('#train-status'); if (st && S.detail?.type === 'train') st.innerHTML = trainStatus(S.detail.id, S.detail.date);
   if (S.detail?.type === 'train') updateEta();
   if (S.card) { const el = $('#tlive'); if (el) el.innerHTML = cardHtml(S.card.id, S.card.date, true); }
+  if (S.jcard != null && JPL && c.sec % 5 === 0) { const el = $('#jlive'); if (el) el.innerHTML = jplCardHtml(S.jcard, true); }
   const sb = $('#simbar');
   if (S.at) {
     app.dataset.sim = '1'; sb.hidden = false; $('#sim-t').innerHTML = `${fmt(c.sec)} WIB<span class="dt"> · ${dateNice(c.date)}</span>`;
@@ -362,17 +368,19 @@ function cardHtml(id, date, liveOnly = false) {
     <div id="tlive">${live}</div></div>`;
 }
 function showCard(id, date) {
-  S.card = { id, date };
+  S.card = { id, date }; S.jcard = null;
   const f = E.find(id, clock(), date); if (!f) return;
   const s = E.state(f.trip, f.t);
-  const p = s ? s.p : E.pos(f.trip.sids[0]);
+  placeCard(s ? s.p : E.pos(f.trip.sids[0]), cardHtml(id, date));
+}
+function placeCard(p, html) {
   const mob = innerWidth < 760;
   const short = map.getContainer().clientHeight < 520 && !mob;
   cardPop.options.anchor = short ? 'left' : 'bottom';
-  cardPop.setLngLat(p).setHTML(cardHtml(id, date)).addTo(map);
+  cardPop.setLngLat(p).setHTML(html).addTo(map);
   hoverPop.remove();
   if (mob) sheetTo('peek');
-  // keep the whole card on screen: train sits just below the card, clear of the side controls and the sheet
+  // keep the whole card on screen: the point sits just below the card, clear of the side controls and the sheet
   requestAnimationFrame(() => {
     const el = cardPop.getElement(); if (!el) return;
     const ch = el.offsetHeight, c = map.getContainer(), W = c.clientWidth, H = c.clientHeight;
@@ -387,7 +395,90 @@ function showCard(id, date) {
     map.easeTo({ center: p, offset: [tx - W / 2, ty - H / 2], duration: 450 });
   });
 }
-function closeCard() { S.card = null; cardPop?.remove(); }
+function closeCard() { S.card = null; S.jcard = null; cardPop?.remove(); }
+
+/* ---------- level crossings (JPL) from OpenStreetMap ---------- */
+const JCAT = {
+  bar: ['Berpalang pintu', '#1E9E4A'], sig: ['Lampu / bel, tanpa palang', '#E8A317'], open: ['Tanpa palang & sinyal', '#D63B3B'],
+  liar: ['Tidak resmi (liar)', '#8B1A1A'], ped: ['Penyeberangan pejalan kaki', '#2D7FF9'], unk: ['Pengaman belum terdata di OSM', '#8A8F98'],
+};
+const BARRIER = { full: 'Palang penuh', half: 'Palang setengah', double_half: 'Palang setengah ganda', yes: 'Ada palang', gate: 'Pintu geser', chain: 'Rantai', no: 'Tidak ada' };
+const HW = { motorway: 'jalan tol', trunk: 'jalan nasional', primary: 'jalan utama', secondary: 'jalan sekunder', tertiary: 'jalan penghubung', unclassified: 'jalan lokal', residential: 'jalan permukiman', service: 'jalan layanan', track: 'jalan tanah', footway: 'jalan setapak', path: 'jalan setapak', pedestrian: 'jalur pejalan kaki', living_street: 'jalan lingkungan', cycleway: 'jalur sepeda', steps: 'tangga' };
+let JPL = null, jplLoading = null;
+const jrow = (i) => { const r = JPL.x[i]; return { i, osm: r[0], p: [r[1], r[2]], cat: r[3], light: r[4] & 1, bell: r[4] & 2, sup: r[4] & 4, noLight: r[4] & 8, noBell: r[4] & 16, barrier: r[5], road: r[6], ref: r[7], a: r[8], b: r[9], dA: r[10], L: r[11], pos: r[12], hw: r[13], name: r[14] }; };
+const jroad = (x) => x.road || (x.hw ? (HW[x.hw] || 'jalan') + ' tanpa nama' : 'Jalan belum terdata');
+const jtitle = (x) => x.name || (x.ref ? 'JPL ' + x.ref : x.road ? 'Perlintasan ' + x.road : 'Perlintasan sebidang');
+function loadJPL() {
+  if (JPL) return Promise.resolve(JPL);
+  return (jplLoading ||= getJSON('/data/jpl.json').then((d) => {
+    JPL = d;
+    if (map?.getSource('jpl')) map.getSource('jpl').setData(FC(d.x.map((r, i) => ({ type: 'Feature', id: i, properties: { i, c: r[3] }, geometry: { type: 'Point', coordinates: [r[1], r[2]] } }))));
+    if (S.q) render();
+    return d;
+  }).catch((e) => { jplLoading = null; toast('Data perlintasan belum bisa dimuat'); throw e; }));
+}
+function jplLayers() {
+  map.addSource('jpl', { type: 'geojson', data: FC(), cluster: true, clusterRadius: 42, clusterMaxZoom: 12 });
+  const vis = S.layers.jpl ? 'visible' : 'none';
+  const col = ['match', ['get', 'c'], ...Object.entries(JCAT).flatMap(([k, v]) => [k, v[1]]), '#8A8F98'];
+  map.addLayer({ id: 'jpl-cl', type: 'circle', source: 'jpl', filter: ['has', 'point_count'], layout: { visibility: vis }, paint: { 'circle-color': '#FFD21F', 'circle-opacity': 0.95, 'circle-stroke-color': '#1d1d22', 'circle-stroke-width': 1.5, 'circle-radius': ['step', ['get', 'point_count'], 11, 20, 14, 100, 18, 500, 22] } }, 'tr-halo');
+  map.addLayer({ id: 'jpl-cn', type: 'symbol', source: 'jpl', filter: ['has', 'point_count'], layout: { visibility: vis, 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-allow-overlap': true }, paint: { 'text-color': '#1d1d22' } }, 'tr-halo');
+  map.addLayer({ id: 'jpl-p', type: 'circle', source: 'jpl', filter: ['!', ['has', 'point_count']], layout: { visibility: vis }, paint: { 'circle-color': col, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 14, 6, 17, 9], 'circle-stroke-color': '#fff', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 2] } }, 'tr-halo');
+  map.addLayer({ id: 'jpl-x', type: 'symbol', source: 'jpl', minzoom: 14, filter: ['!', ['has', 'point_count']], layout: { visibility: vis, 'text-field': '×', 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 17, 15], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#fff' } }, 'tr-halo');
+  for (const id of ['jpl-p', 'jpl-cl']) {
+    map.on('mouseenter', id, () => (map.getCanvas().style.cursor = 'pointer'));
+    map.on('mouseleave', id, () => (map.getCanvas().style.cursor = ''));
+  }
+  if (S.layers.jpl) loadJPL();
+}
+function jplLegend() {
+  const el = $('#jlegf'); if (!el) return;
+  el.innerHTML = `<b>Perlintasan sebidang</b>${Object.values(JCAT).map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}<span><i class="cl"></i>Kelompok titik (ketuk untuk perbesar)</span><small>© OpenStreetMap</small>`;
+}
+function setJPL(on, quiet) {
+  S.layers.jpl = !!on; applyLayers();
+  $('#b-jpl')?.setAttribute('aria-pressed', String(!!on));
+  app.toggleAttribute('data-jpl', !!on); jplLegend();
+  if (on) loadJPL().then(() => { if (!quiet) toast(`Perlintasan sebidang: ${JPL.x.length.toLocaleString('id-ID')} titik dari OpenStreetMap${map.getZoom() < 9 ? ' · perbesar peta untuk detail' : ''}`); }).catch(() => {});
+  else if (S.jcard != null) closeCard();
+  if (!$('#layers').hidden) layersPanel();
+  writeHash();
+}
+function jplNext(x) {
+  if (!x.a) return '<div class="jnone">Titik ini tidak berada di jalur yang punya jadwal di Sepur Live, jadi kereta yang lewat belum bisa diperkirakan.</div>';
+  const ps = E.passes(x.a, x.b, x.dA, clock(), 3 * 3600, innerWidth < 760 ? 3 : 5);
+  if (!ps.length) return '<div class="jnone">Tidak ada kereta terjadwal lewat dalam 3 jam ke depan.</div>';
+  return `<div class="jnext">${ps.map((q) => { const l = lineOf(q.trip.line), i = trainInfo(q.trip); return `<button type="button" class="jn" data-open="train:${esc(q.trip.id)}:${q.trip.date}">${lb(l)}<span class="main"><b>${esc(i.short)} · ${esc(i.num)}</b><span>ke ${esc(q.trip.head)} · ≈ ${kmh(q.v, l)} km/j</span></span><span class="side"><b>≈ ${fmt(Math.round(q.at) % 86400)}</b><span>${q.dt < 30 ? 'sedang lewat' : mins(q.dt)}</span></span></button>`; }).join('')}</div>`;
+}
+function jplCardHtml(i, liveOnly) {
+  const x = jrow(i), [cl, color] = JCAT[x.cat];
+  const live = `<div class="kv"><span>Kereta berikutnya lewat</span><b>perkiraan dari jadwal</b></div>${jplNext(x)}`;
+  if (liveOnly) return live;
+  const yn = (v, no) => (v ? 'Ada' : no ? 'Tidak ada' : 'Belum terdata');
+  const sa = x.a && stOf(x.a), sb = x.b && stOf(x.b);
+  const lines = x.a ? E.allLines().filter((l) => (JPL.lines[l.id] && (l.stations.concat(...(l.branches || [])).includes(x.a) && l.stations.concat(...(l.branches || [])).includes(x.b) || (l.pairs || []).includes(x.a < x.b ? x.a + '>' + x.b : x.b + '>' + x.a) || (l.pairs || []).includes(x.a + '>' + x.b) || (l.pairs || []).includes(x.b + '>' + x.a)))) : [];
+  const tagged = x.barrier || x.light || x.bell || x.cat !== 'unk';
+  return `<div id="tcard" class="tcard jcard" style="--c:${color}" role="dialog" aria-label="${esc(jtitle(x))}">
+    <div class="th"><span class="jic" style="background:${color}">×</span><div class="tt2"><b>${esc(jtitle(x))}</b><span>${esc(cl)}${x.sup ? ' · dijaga petugas' : ''}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="dest"><span>Jalan</span><b>${esc(jroad(x))}</b>${x.road && x.hw ? `<small>${esc(HW[x.hw] || x.hw)}</small>` : ''}</div>
+    <div class="jgrid"><div><span>Palang</span><b>${esc(x.barrier ? BARRIER[x.barrier] || x.barrier : x.cat === 'open' || x.cat === 'sig' ? 'Tidak ada' : 'Belum terdata')}</b></div><div><span>Lampu</span><b>${yn(x.light, x.noLight || x.cat === 'open')}</b></div><div><span>Bel</span><b>${yn(x.bell, x.noBell || x.cat === 'open')}</b></div></div>
+    ${sa && sb ? `<div class="kv"><span>Antara</span><b>${esc(sa.name)} – ${esc(sb.name)}</b></div><div class="kv"><span>Posisi</span><b>± ${(x.dA / 1000).toFixed(1).replace('.', ',')} km dari ${esc(sa.name)}${x.pos ? ` · KM ${esc(x.pos)}` : ''}</b></div>` : '<div class="kv"><span>Jalur</span><b>Di luar jalur berjadwal Sepur Live</b></div>'}
+    ${lines.length ? `<div class="jlines">${lines.slice(0, 8).map((l) => lb(l)).join('')}${lines.length > 8 ? `<span class="more">+${lines.length - 8}</span>` : ''}</div>` : ''}
+    <div id="jlive">${live}</div>
+    <div class="tags"><span class="badge">Data OpenStreetMap (ODbL)</span><span class="badge">Waktu lewat: perkiraan, bukan GPS</span></div>
+    <div class="kv small"><span>${x.p[1].toFixed(5)}, ${x.p[0].toFixed(5)}</span><b><a href="https://www.openstreetmap.org/node/${x.osm}" target="_blank" rel="noopener">Lihat / perbaiki di OSM</a></b></div></div>`;
+}
+function showJplCard(i) {
+  S.card = null; S.jcard = i;
+  placeCard(jrow(i).p, jplCardHtml(i));
+}
+function jplStatsHtml(lineId) {
+  if (!JPL) return '';
+  const st = lineId ? JPL.lines[lineId] : { ...JPL.stats, all: JPL.x.length };
+  if (!st) return '';
+  const bars = Object.keys(JCAT).filter((k) => st[k]).map((k) => `<div class="jst"><i style="background:${JCAT[k][1]}"></i><span>${JCAT[k][0]}</span><b>${st[k].toLocaleString('id-ID')}</b></div>`).join('');
+  return `<div class="jstats"><div class="jstot"><b>${st.all.toLocaleString('id-ID')}</b> perlintasan sebidang${lineId ? ' di rute ini' : ' di Jawa'} (OpenStreetMap)</div>${bars}</div>`;
+}
 
 /* ---------- views ---------- */
 function counts() {
@@ -488,6 +579,8 @@ function lineDetail(id) {
   h += `<div class="facts"><div class="fact"><span>Jalan sekarang</span><b>${run.length}</b></div><div class="fact"><span>Perjalanan</span><b>${span ? span.count : '–'}</b></div><div class="fact"><span>Pertama–terakhir</span><b>${span ? fmt(span.first) + '–' + fmt(span.last) : '–'}</b></div></div>`;
   h += `<div class="acts"><button type="button" class="btn small" data-act="fit"><svg class="i"><use href="#i-pin"/></svg>Lihat di peta</button><button type="button" class="btn small" data-act="share"><svg class="i"><use href="#i-share"/></svg>Bagikan</button>${tag(l)}${l.fak ? '<span class="badge est">Fakultatif: tidak setiap hari</span>' : ''}</div>`;
   h += srcNote(l);
+  if (JPL?.lines[l.id]) h += `<div class="sech"><h2>Perlintasan sebidang</h2><span>OpenStreetMap</span></div>` + jplStatsHtml(l.id);
+  else if (!JPL && E.allLines().length > 20) h += `<button type="button" class="btn small jbtn" data-act="jpl-on"><svg class="i"><use href="#i-jpl"/></svg>Lihat perlintasan sebidang di jalur ini</button>`;
   if (run.length) h += `<div class="sech"><h2>Kereta di jalur ini</h2><span>${run.length}</span></div><div class="list">${run.slice(0, 12).map((r) => trainRow(r.trip, r.s)).join('')}</div>`;
   h += lineGridHtml(l, date);
   [l.stations, ...(l.branches || [])].forEach((p, i) => {
@@ -759,6 +852,13 @@ function searchView() {
   if (st.length) h += `<div class="sech"><h2>Stasiun</h2></div><div class="list">${st.map((s) => `<button type="button" class="row" data-open="station:${esc(s.id)}">${dots(s)}<span class="main"><b>${esc(s.name)}</b><span>${esc(s.id)} · ${esc(sysName(s))}</span></span></button>`).join('')}</div>`;
   if (ls.length) h += `<div class="sech"><h2>Jalur &amp; kereta</h2></div><div class="list">${ls.map((l) => `<button type="button" class="row" data-open="line:${esc(l.id)}">${lb(l)}<span class="main"><b>${esc(l.name)}</b><span>${esc(SYS_LABEL[l.sys])}${isKA(l) ? ` · ${esc(stOf(l.stations[0]).name)} – ${esc(stOf(l.stations.at(-1)).name)}` : ''}</span></span></button>`).join('')}</div>`;
   if (tr.length) h += `<div class="sech"><h2>Perjalanan hari ini</h2></div><div class="list">${tr.map((t) => `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(lineOf(t.line))}<span class="main"><b>${esc(trainInfo(t).name)} · ${esc(trainInfo(t).num)}</b><span>ke ${esc(t.head)} · ${esc(stOf(t.sids[0]).name)} ${fmt(t.start)} → ${fmt(t.end)}</span></span></button>`).join('')}</div>`;
+  if (nq.length >= 3) {
+    if (!JPL) loadJPL().catch(() => {});
+    else {
+      const jm = []; for (let i = 0; i < JPL.x.length && jm.length < 6; i++) { const r = JPL.x[i]; if ((r[6] && nrm(r[6]).includes(nq)) || (r[7] && nrm(r[7]) === nq.replace(/^jpl ?/, '')) || (r[14] && nrm(r[14]).includes(nq))) jm.push(i); }
+      if (jm.length) h += `<div class="sech"><h2>Perlintasan sebidang</h2><span>© OpenStreetMap</span></div><div class="list">${jm.map((i) => { const x = jrow(i); return `<button type="button" class="row" data-jpl="${i}"><span class="lb" style="background:${JCAT[x.cat][1]}">×</span><span class="main"><b>${esc(jtitle(x))}</b><span>${esc(JCAT[x.cat][0])}${x.a ? ' · ' + esc(stOf(x.a).name) + ' – ' + esc(stOf(x.b).name) : ''}</span></span></button>`; }).join('')}</div>`;
+    }
+  }
   if (S.placeQ === q && S.places.length) h += `<div class="sech"><h2>Tempat</h2><span>© OpenStreetMap · Photon</span></div><div class="list">${S.places.map((p, i) => `<button type="button" class="row" data-place="${i}"><span class="lb" style="background:#2F7BF6"><svg class="i" style="fill:#fff;width:16px;height:16px"><use href="#i-pin"/></svg></span><span class="main"><b>${esc(p.name)}</b><span>${esc(p.sub)}</span></span></button>`).join('')}</div>`;
   if (!h) h = q.length > 2 && S.placeQ !== q ? `<div class="empty">Mencari…</div>` : `<div class="empty"><b>Tidak ketemu</b>Coba nama stasiun (Manggarai), jalur (Bogor, Argo), nomor KA (1000, KA 5), atau tempat.</div>`;
   return h;
@@ -866,6 +966,7 @@ function writeHash(push) {
   if ((!d || d.type === 'journey') && S.tab !== 'peta') f.push('tab=' + S.tab);
   if (S.tab === 'rute' && S.plan.from && S.plan.to && (!d || d.type === 'journey')) { f.push('from=' + S.plan.from, 'to=' + S.plan.to); if (S.plan.date) f.push('pd=' + S.plan.date); if (S.plan.time != null) f.push('pt=' + fmt(S.plan.time).replace('.', '')); }
   if (S.at) { const c = clock(); f.push('t=' + fmt(c.sec).replace('.', '') + '&d=' + c.date + ((S.at.speed || 1) !== 1 ? '&x=' + S.at.speed : '')); }
+  if (S.layers.jpl) f.push('jpl=1');
   if (map) { const c = map.getCenter(); f.push(`@${c.lat.toFixed(5)},${c.lng.toFixed(5)},${map.getZoom().toFixed(1)}`); }
   const url = location.pathname + (f.length ? '#' + f.join('&') : '');
   try { push ? history.pushState(null, '', url) : history.replaceState(null, '', url); } catch {}
@@ -880,6 +981,7 @@ function readHash(initial) {
     setClock(date, +t.slice(0, 2) * 3600 + +t.slice(2) * 60, Math.min(600, Math.max(1, +kv.x || 1)));
   }
   if (['jalur', 'stasiun', 'rute'].includes(kv.tab)) S.tab = kv.tab;
+  if (kv.jpl === '1' || kv.jpl === '0') { S.layers.jpl = kv.jpl === '1'; if (!initial && map) setJPL(S.layers.jpl, true); }
   if (kv.from && kv.to) { S.plan = { from: kv.from, to: kv.to, date: kv.pd || null, time: kv.pt ? +kv.pt.slice(0, 2) * 3600 + +kv.pt.slice(2) * 60 : null }; S.planPending = true; }
   S.detail = kv.train ? { type: 'train', id: kv.train, date: kv.td } : kv.station ? { type: 'station', id: kv.station } : kv.line ? { type: 'line', id: kv.line } : null;
 }
@@ -926,7 +1028,10 @@ function layersPanel() {
   const row = (k, t, sw) => `<label><input type="checkbox" data-layer="${k}" ${S.layers[k] ? 'checked' : ''}>${sw ? `<i class="sw" style="background:${sw}"></i>` : ''}${t}</label>`;
   el.innerHTML = `<h3>Tampilan peta <button type="button" data-act="layers-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></h3>
     <div class="grp">Kereta</div>${row('krl', 'KRL Commuter Line', '#E30A16')}${row('mrt', 'MRT Jakarta', '#CE0037')}${row('lrtj', 'LRT Jakarta', '#F16227')}${row('jbdb', 'LRT Jabodebek', '#20409A')}${row('bandara', 'KA Bandara & Skytrain', '#F2A900')}${row('whoosh', 'Whoosh & feeder', '#8C0023')}${row('regional', 'Commuter daerah', '#3B7A8C')}${row('kai', 'KA antarkota', '#6A2C91')}
-    <div class="grp">Peta</div>${row('stations', 'Stasiun')}${row('labels', 'Nama dan kode')}${row('net', 'Jaringan rel OpenStreetMap')}`;
+    <div class="grp">Peta</div>${row('stations', 'Stasiun')}${row('labels', 'Nama dan kode')}${row('net', 'Jaringan rel OpenStreetMap')}
+    <div class="grp">Perlintasan sebidang (JPL)</div>${row('jpl', 'Tampilkan perlintasan sebidang', '#1E9E4A')}
+    <div class="jleg">${Object.values(JCAT).map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}</div>
+    ${S.layers.jpl && JPL ? jplStatsHtml() : ''}<p class="jsrc">Data © kontributor OpenStreetMap (ODbL). Banyak titik belum punya data palang/lampu, jadi "belum terdata" bukan berarti tidak aman.</p>`;
 }
 
 async function share() {
@@ -956,9 +1061,10 @@ function bindUI() {
   bindSheet();
   if (S.planPending) { S.planPending = false; runPlan(false); }
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-open],[data-act],[data-tab],[data-filter],[data-place],[data-sline],[data-pick],[data-setplace],[data-journey],[data-ttdate],[data-ttdir],[data-tthour],[data-speed]');
+    const t = e.target.closest('[data-jpl],[data-open],[data-act],[data-tab],[data-filter],[data-place],[data-sline],[data-pick],[data-setplace],[data-journey],[data-ttdate],[data-ttdir],[data-tthour],[data-speed]');
     if (!t) { if (e.target.id === 'about') $('#about').hidden = true; return; }
     if (t.matches('input') && t.dataset.act !== 'pass') return;
+    if (t.dataset.jpl) { const i = +t.dataset.jpl; if (!S.layers.jpl) setJPL(true, true); map.jumpTo({ center: jrow(i).p, zoom: Math.max(map.getZoom(), 15.5) }); showJplCard(i); return; }
     if (t.dataset.open) { const [type, ...rest] = t.dataset.open.split(':'); open(type, rest.join(':')); return; }
     if (t.dataset.tab) {
       S.tab = t.dataset.tab; S.detail = null; S.q = ''; $('#q').value = ''; $('#qx').hidden = true;
@@ -1004,12 +1110,13 @@ function bindUI() {
       S.follow = true; toast(`Diputar ${S.at.speed}× lebih cepat · peta ikut kereta`); render(true); tick(); writeHash(false);
     }
     else if (a === 'sim-stop') { S.at = null; S.simJ = null; S.follow = false; actT = 0; toast('Kembali ke waktu sekarang'); writeHash(false); render(true); tick(); }
+    else if (a === 'jpl-on') { setJPL(true); loadJPL().then(() => render()).catch(() => {}); }
     else if (a === 'layers-close') { $('#layers').hidden = true; $('#b-layers').setAttribute('aria-pressed', 'false'); }
     else if (a === 'fav') { S.fav = S.fav === S.detail.id ? null : S.detail.id; LS.set('fav', S.fav); toast(S.fav ? 'Disimpan sebagai stasiunku' : 'Stasiunku dilepas'); render(true); }
     else if (a === 'follow') { S.follow = !S.follow; toast(S.follow ? 'Peta ikut bergerak bersama kereta ini' : 'Berhenti mengikuti'); render(true); }
   });
   document.addEventListener('change', (e) => {
-    const k = e.target.dataset?.layer; if (k) { S.layers[k] = e.target.checked; applyLayers(); return; }
+    const k = e.target.dataset?.layer; if (k === 'jpl') { setJPL(e.target.checked); return; } if (k) { S.layers[k] = e.target.checked; applyLayers(); return; }
     if (e.target.matches('[data-ttdate-input]') && e.target.value) { S.ttDate = e.target.value; S.ttHour = null; render(true); return; }
     const p = e.target.dataset?.plan;
     if (p === 'date' && e.target.value) { S.plan.date = e.target.value; if (S.plan.time == null) S.plan.time = Math.floor(clock().sec / 60) * 60; runPlan(false); }
@@ -1018,7 +1125,7 @@ function bindUI() {
   document.addEventListener('input', (e) => { if (e.target.id === 'pick-q') { S.pickQ = e.target.value; render(true); } });
   document.addEventListener('keydown', (e) => {
     if (e.target.id === 'pick-q' && e.key === 'Enter') { e.preventDefault(); view.querySelector('[data-setplace]')?.click(); return; }
-    if (e.key === 'Escape') { if (S.card) closeCard(); else if (!$('#about').hidden) $('#about').hidden = true; else if (!$('#layers').hidden) $('#layers').hidden = true; else if (S.pick && S.plan.from && S.plan.to) { S.pick = null; render(true); } else if (S.detail) back(); }
+    if (e.key === 'Escape') { if (S.card || S.jcard != null) closeCard(); else if (!$('#about').hidden) $('#about').hidden = true; else if (!$('#layers').hidden) $('#layers').hidden = true; else if (S.pick && S.plan.from && S.plan.to) { S.pick = null; render(true); } else if (S.detail) back(); }
   });
   const q = $('#q');
   q.addEventListener('input', () => { S.q = q.value; $('#qx').hidden = !q.value; if (S.tab === 'peta' && S.detail) S.detail = null; render(); if (S.tab === 'peta') searchPlaces(q.value.trim()); });
@@ -1044,6 +1151,8 @@ function bindUI() {
     }
     if (S.ug) { toast('Bawah tanah: terowongan rel ditandai garis putus-putus'); if (!S.detail) map.flyTo({ center: [106.8225, -6.205], zoom: 13 }); }
   };
+  $('#b-jpl').onclick = () => setJPL(!S.layers.jpl);
+  $('#b-jpl').setAttribute('aria-pressed', String(!!S.layers.jpl)); app.toggleAttribute('data-jpl', !!S.layers.jpl); jplLegend();
   $('#b-layers').onclick = (e) => { const el = $('#layers'); const show = el.hidden; if (show) layersPanel(); el.hidden = !show; e.currentTarget.setAttribute('aria-pressed', String(show)); };
 }
 

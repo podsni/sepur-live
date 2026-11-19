@@ -295,3 +295,33 @@ svg.i{width:20px;height:20px;flex:none;fill:currentColor;display:block}
 @media (max-width:380px){.tcard .media{grid-template-columns:92px 1fr}.tcard .media .thumb{width:92px}}
 @media (max-height:520px){.tcard .media{grid-template-columns:1fr}.tcard .media .thumb,.tcard .fcred{display:none}}
 @media (max-height:520px) and (min-width:760px){.tcard{gap:6px;padding-top:10px}.tcard .media .dest{padding:4px 8px}.tcard .media .dest small:last-child,.tcard .prog,.tcard .tags .badge.real{display:none}.tcard .acts .btn{height:36px}}
+/* v5: level crossings (JPL) */
+.jcard .jic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;font:800 22px/1 var(--font);flex:none}
+.jcard .jgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.jcard .jgrid>div{background:var(--panel);border-radius:10px;padding:6px 8px;display:grid;min-width:0}
+.jcard .jgrid span{font:600 10px/12px var(--font);text-transform:uppercase;letter-spacing:.04em;color:var(--text2)}
+.jcard .jgrid b{font:600 12.5px/16px var(--font);overflow-wrap:anywhere}
+.jcard .jlines{display:flex;flex-wrap:wrap;gap:4px}.jcard .jlines .lb{min-width:28px;height:22px;font-size:10.5px}.jcard .jlines .more{font-size:11px;color:var(--text2);align-self:center}
+#jlive{display:grid;gap:6px}
+.jnext{display:grid;gap:4px;max-height:196px;overflow:auto}
+.jn{display:flex;gap:8px;align-items:center;text-align:left;padding:6px 8px;border-radius:10px;background:var(--panel);min-height:44px;width:100%}
+.jn .lb{min-width:30px;height:24px;font-size:11px}.jn .main{flex:1;min-width:0;display:grid}.jn .main b{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.jn .main span{font-size:11px;color:var(--text2)}
+.jn .side{display:grid;text-align:right}.jn .side b{font-size:13px;font-variant-numeric:tabular-nums}.jn .side span{font-size:10.5px;color:var(--ok)}
+.jnone{font-size:12px;color:var(--text2);background:var(--panel);border-radius:10px;padding:8px 10px}
+.tcard .kv.small{font-size:11px}.tcard .kv.small a{color:var(--link,#2F7BF6);text-decoration:underline}
+.jleg{display:grid;gap:4px;margin:2px 0 6px 28px}.jleg span{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text2)}
+.jleg i,.jst i{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 0 1.5px #fff,0 0 0 2px rgba(0,0,0,.12)}
+.jsrc{font-size:11px;line-height:15px;color:var(--text2);margin:6px 0 0}
+.jstats{display:grid;gap:4px;background:var(--panel);border-radius:12px;padding:8px 10px;margin:6px 0}
+.jstot{font-size:12.5px}.jstot b{font-size:15px}
+.jst{display:flex;gap:8px;align-items:center;font-size:12px}.jst span{flex:1;color:var(--text2)}.jst b{font-variant-numeric:tabular-nums}
+.jbtn{margin:8px 0}
+#b-jpl[aria-pressed=true]{background:var(--primary);color:var(--onp)}#b-jpl[aria-pressed=true] svg{fill:currentColor}
+.row .lb{font-weight:800}
+.layers{max-height:calc(100vh - 120px);overflow:auto}
+@media (max-width:759px){.jcard .jlines{display:none}.jcard .dest small{display:none}.jcard .jgrid>div{padding:4px 8px}.jnext{max-height:none}.jcard .tags{display:none}.jcard{gap:6px}}
+.jlegf{display:none}
+@media (min-width:760px){.app[data-jpl] .jlegf{display:grid;position:absolute;z-index:30;left:calc(var(--pane-w) + var(--safe-l) + 12px);bottom:calc(30px + var(--safe-b));gap:3px;background:var(--card,#fff);border-radius:12px;padding:8px 10px;box-shadow:var(--shadow);font-size:11px;color:var(--text2);max-width:230px}
+.jlegf b{color:var(--text);font-size:12px}.jlegf span{display:flex;gap:6px;align-items:center}.jlegf i{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 1.5px #fff,0 0 0 2px rgba(0,0,0,.15)}.jlegf i.cl{background:#FFD21F;box-shadow:0 0 0 1.5px #1d1d22}.jlegf small{font-size:10px}}
+@media (min-width:760px) and (max-width:1100px){.app[data-jpl] .jlegf{display:none}}
+@media (max-height:620px){.app[data-jpl] .jlegf{display:none}}

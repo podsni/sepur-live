@@ -12,3 +12,8 @@ Gambar di `public/img/fleet/` adalah ilustrasi tipe armada yang umum dipakai tia
 - **Lokomotif CC 206 + kereta Stainless Steel New Generation** (`argo.webp`): [Argo Semeru SSNG.jpg](https://commons.wikimedia.org/wiki/File:Argo_Semeru_SSNG.jpg), oleh Luthfi Ramadhan D, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
 - **Lokomotif CC 206 + rangkaian kereta** (`ka.webp`): [Papandayan Train of Locomotive CC 206 16 10.jpg](https://commons.wikimedia.org/wiki/File:Papandayan_Train_of_Locomotive_CC_206_16_10.jpg), oleh TyewongX, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
 - **Lokomotif CC 201 + rangkaian kereta** (`lokal.webp`): [CC 201 78 04, Semarang Tawang Station, 2025 (01).jpg](https://commons.wikimedia.org/wiki/File:CC_201_78_04,_Semarang_Tawang_Station,_2025_(01).jpg), oleh Bahnfrend, lisensi CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0).
+
+# Data peta dan perlintasan sebidang
+
+- Rel, stasiun, dan **perlintasan sebidang (JPL)** (`public/data/network.json`, `public/data/jpl.json`): © kontributor OpenStreetMap, tersedia di bawah Open Database License (ODbL) 1.0, https://www.openstreetmap.org/copyright. Diambil dari ekstrak Geofabrik Pulau Jawa; `jpl.json` adalah turunan database (titik `railway=level_crossing`/`railway=crossing` di rel aktif, tag pengaman, nama jalan dari jalan yang memotong, dan penempatan pada ruas antarstasiun) dan berlisensi ODbL 1.0.
+- Data perlintasan 168Railway (https://168railway.com/jpl) **tidak** dipakai: itu database survei milik mereka tanpa lisensi terbuka.

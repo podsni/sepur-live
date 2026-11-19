@@ -227,6 +227,31 @@ export class Engine {
     }
     return (trip._vt = { dep: P, arr: A });
   }
+  /** Trips crossing a point on section a-b lying dA metres from a, between now and now+horizon (all estimates). */
+  passes(a, b, dA, clock, horizon = 3 * 3600, limit = 6) {
+    const L = this.seg(a, b).len, out = [];
+    for (const { d, t: now } of this.windows(clock)) {
+      if (!d.segIdx) {
+        d.segIdx = new Map();
+        for (const trip of d.trips) for (let i = 0; i < trip.sids.length - 1; i++) {
+          const x = trip.sids[i], y = trip.sids[i + 1], k = x < y ? x + '>' + y : y + '>' + x;
+          if (!d.segIdx.has(k)) d.segIdx.set(k, []);
+          d.segIdx.get(k).push([trip, i]);
+        }
+      }
+      for (const [trip, i] of d.segIdx.get(a < b ? a + '>' + b : b + '>' + a) || []) {
+        if (trip.end < now - 60 || trip.start > now + horizon) continue;
+        const fwd = trip.sids[i] === a, dist = Math.max(0, Math.min(L, fwd ? dA : L - dA));
+        const V = this.vtimes(trip), m = this.segMotion(trip, i);
+        let lo = 0, hi = m.T;
+        for (let k = 0; k < 32; k++) { const mid = (lo + hi) / 2; if (moveAt(m, mid).s < dist) lo = mid; else hi = mid; }
+        const tp = V.dep[i] + hi;
+        if (tp < now - 60 || tp > now + horizon) continue;
+        out.push({ trip, at: tp, dt: tp - now, v: moveAt(m, hi).v, toward: fwd ? b : a });
+      }
+    }
+    return out.sort((x, y) => x.dt - y.dt).slice(0, limit);
+  }
   accelOf(trip) {
     if (trip._a) return trip._a;
     const l = this.lines.get(trip.line) || {};
