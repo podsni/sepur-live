@@ -98,5 +98,45 @@
   "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
   "source": "https://commons.wikimedia.org/wiki/File:CC_201_78_04,_Semarang_Tawang_Station,_2025_(01).jpg",
   "title": "CC 201 78 04, Semarang Tawang Station, 2025 (01).jpg"
+ },
+ "fcargo": {
+  "img": "img/fleet/fcargo.webp",
+  "model": "Lokomotif CC 206 + gerbong datar peti kemas",
+  "caption": "KA barang peti kemas ditarik CC 206 di Stasiun Semarang Tawang",
+  "author": "Bahnfrend",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:CC_206_13_25_%2B_container_train,_Semarang_Tawang_Station,_2025_(01).jpg",
+  "title": "CC 206 13 25 + container train, Semarang Tawang Station, 2025 (01).jpg"
+ },
+ "ftanker": {
+  "img": "img/fleet/ftanker.webp",
+  "model": "Lokomotif + gerbong ketel",
+  "caption": "KA 2627 Betmakola, rangkaian gerbong ketel",
+  "author": "Angger Oktafrida P",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:C6_24_-_KA_2627_Betmakola_Ketel.jpg",
+  "title": "C6 24 - KA 2627 Betmakola Ketel.jpg"
+ },
+ "fparcel": {
+  "img": "img/fleet/fparcel.webp",
+  "model": "Lokomotif + kereta bagasi",
+  "caption": "KA Parcel Selatan berangkat dari Stasiun Gombong",
+  "author": "Dhapian",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:KA_Parcel_Selatan.jpg",
+  "title": "KA Parcel Selatan.jpg"
+ },
+ "fservice": {
+  "img": "img/fleet/fservice.webp",
+  "model": "Lokomotif + gerbong barang terbuka/hopper",
+  "caption": "Rangkaian gerbong barang (angkutan batu balas) di Stasiun Kampung Bandan, ilustrasi umum",
+  "author": "Andra Radithya",
+  "license": "CC BY-SA 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "https://commons.wikimedia.org/wiki/File:Rangkaian_gerbong_kereta_api_barang_angkutan_batu_balas_melintas_Stasiun_Kampung_Bandan..jpg",
+  "title": "Rangkaian gerbong kereta api barang angkutan batu balas melintas Stasiun Kampung Bandan..jpg"
  }
 }

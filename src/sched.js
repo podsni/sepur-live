@@ -57,10 +57,10 @@ function along(pl, f) {
 // Typical service acceleration/braking (m/s²) per system. The schedule fixes distance (along the OSM track)
 // and running time; we fit a trapezoid: accelerate at a from a stop, cruise, brake at a into the next stop.
 // Typical cruising speed (m/s) used only to share minute-rounded timetable time sensibly between short legs.
-export const VREF = { krl: 19, mrt: 22, lrtj: 17, jbdb: 20, bandara: 22, whoosh: 75, regional: 22, kai: 27 };
+export const VREF = { krl: 19, mrt: 22, lrtj: 17, jbdb: 20, bandara: 22, whoosh: 75, regional: 22, kai: 27, barang: 14 };
 // Highest plausible service speed (km/h) per system; shown speeds are clamped to it (timetable rounding artefacts).
-export const VMAX = { krl: 100, mrt: 100, lrtj: 70, jbdb: 90, bandara: 100, whoosh: 350, regional: 120, kai: 120 };
-export const ACCEL = { krl: 0.7, mrt: 0.9, lrtj: 0.8, jbdb: 0.9, bandara: 0.6, whoosh: 0.45, regional: 0.3, kai: 0.25 };
+export const VMAX = { krl: 100, mrt: 100, lrtj: 70, jbdb: 90, bandara: 100, whoosh: 350, regional: 120, kai: 120, barang: 100 };
+export const ACCEL = { krl: 0.7, mrt: 0.9, lrtj: 0.8, jbdb: 0.9, bandara: 0.6, whoosh: 0.45, regional: 0.3, kai: 0.25, barang: 0.12 };
 /** Fit a trapezoidal speed profile for distance D (m) in time T (s); sA/sB = stops at start/end. */
 export function motion(D, T, a, sA, sB) {
   const n = (sA ? 1 : 0) + (sB ? 1 : 0);
@@ -102,6 +102,9 @@ export class Engine {
     this.lines = new Map(network.lines.map((l) => [l.id, l]));
     this.segs = { ...network.segs };
     this.kai = null;
+    this.fr = null;
+    /** Freight (KA barang) visibility for boards, timetables and crossings: null = hidden, else (line) => bool. */
+    this.freightOn = null;
     this.segCache = new Map();
     this.dayCache = new Map();
     this.connCache = new Map();
@@ -115,6 +118,17 @@ export class Engine {
     Object.assign(this.segs, kai.segs);
     this.dayCache.clear(); this.connCache.clear();
   }
+  /** Merge the freight bundle (KA barang, GAPEKA). Freight trips never enter the journey planner. */
+  addFreight(fr) {
+    this.fr = fr;
+    for (const l of fr.lines) this.lines.set(l.id, l);
+    for (const s of fr.stations || []) if (!this.st.has(s.id)) this.st.set(s.id, s);
+    Object.assign(this.segs, fr.segs);
+    this.dayCache.clear(); this.connCache.clear();
+  }
+  isFreight(trip) { return !!trip.freight; }
+  /** Whether a freight trip should be listed (boards, timetables, crossings); passenger trips always are. */
+  shown(trip) { return !trip.freight || (!!this.freightOn && this.freightOn(this.lines.get(trip.line))); }
   allLines() { return [...this.lines.values()]; }
 
   seg(a, b) {
@@ -157,6 +171,7 @@ export class Engine {
     for (const p of this.tripsData[type] || []) trips.push(unpack(p));
     for (const p of this.tripsData.daily || []) trips.push(unpack(p));
     if (this.kai) for (const p of this.kai.daily) trips.push(unpack(p));
+    if (this.fr) for (const p of this.fr.daily) trips.push(unpack(p, { freight: true }));
     for (const l of this.lines.values()) {
       if (l.sched === 'frequency' || (l.freqDays && l.freqDays.includes(type))) trips.push(...this.freqTrips(l, type));
     }
@@ -276,7 +291,7 @@ export class Engine {
         }
       }
       for (const [trip, i] of d.segIdx.get(a < b ? a + '>' + b : b + '>' + a) || []) {
-        if (trip.end < now - 60 || trip.start > now + horizon) continue;
+        if (trip.end < now - 60 || trip.start > now + horizon || !this.shown(trip)) continue;
         const fwd = trip.sids[i] === a, dist = Math.max(0, Math.min(L, fwd ? dA : L - dA));
         const V = this.vtimes(trip), m = this.segMotion(trip, i);
         let lo = 0, hi = m.T;
@@ -351,7 +366,7 @@ export class Engine {
   departures(sid, clock, limit = 40, horizon = 6 * 3600) {
     const out = [];
     for (const { d, t } of this.windows(clock)) for (const [trip, i] of d.byStation.get(sid) || []) {
-      if (i === trip.sids.length - 1) continue;
+      if (i === trip.sids.length - 1 || !this.shown(trip)) continue;
       const dep = trip.dep[i];
       if (dep >= t - 30 && dep <= t + horizon) out.push({ trip, i, dep, wait: dep - t });
     }
@@ -363,6 +378,7 @@ export class Engine {
   stationDay(sid, date) {
     const d = this.day(date), rows = [];
     for (const [trip, i] of d.byStation.get(sid) || []) {
+      if (!this.shown(trip)) continue;
       const last = i === trip.sids.length - 1;
       rows.push({ trip, i, dep: trip.dep[i], arr: trip.arr[i], terminates: last, origin: i === 0 });
     }
@@ -414,7 +430,7 @@ export class Engine {
   }
   nextService(clock) {
     for (const { d, t } of [{ d: this.day(clock.date), t: clock.sec }, { d: this.day(addDays(clock.date, 1)), t: clock.sec - 86400 }])
-      for (const trip of d.trips) if (trip.start >= t) return { trip, wait: trip.start - t };
+      for (const trip of d.trips) if (trip.start >= t && !trip.freight) return { trip, wait: trip.start - t };
     return null;
   }
 
@@ -435,12 +451,13 @@ export class Engine {
 
   /** Elementary connections of a service day, shifted by `off` seconds, sorted by departure. */
   connections(date) {
-    const k = date + (this.kai ? '+k' : '');
+    const k = date + (this.kai ? '+k' : '') + (this.fr ? '+f' : '');
     if (this.connCache.has(k)) return this.connCache.get(k);
     const { idx } = this.stationIndex();
     const out = [];
     for (const [d, off] of [[this.day(addDays(date, -1)), -86400], [this.day(date), 0], [this.day(addDays(date, 1)), 86400]]) {
       for (const t of d.trips) {
+        if (t.freight) continue; // KA barang does not carry passengers
         let prev = -1;
         for (let i = 0; i < t.sids.length; i++) {
           if (!(t.flags[i] & 1)) continue;

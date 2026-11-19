@@ -549,3 +549,79 @@ json.dump({'v': 2, 'meta': META, **core_trips}, open(os.path.join(A.out, 'trips.
 json.dump({'v': 2, 'meta': META, 'lines': kai_lines, 'segs': kai_segs, 'daily': kai_trips}, open(os.path.join(A.out, 'kai.json'), 'w'), separators=(',', ':'), ensure_ascii=False)
 print('lines', len(lines), '+kai', len(kai_lines), 'stations', len(stations), 'segs', len(core_segs), '+', len(kai_segs), dict(seg_stats),
       'trips wk/we/daily', len(core_trips['weekday']), len(core_trips['weekend']), len(core_trips['daily']), 'kai', len(kai_trips))
+
+# ---------- KA barang (freight) from the same GAPEKA 2026 book: separate bundle, never used by the planner ----------
+# GAPEKA names each freight service with a category suffix (Cargo/Tanker/Parcel/Service/Trans). It does not say the
+# commodity or the shipper, so the app shows the category only.
+FR_CAT = [('Tanker', 'tanker'), ('Cargo', 'cargo'), ('Parcel', 'parcel'), ('Service', 'service'), ('Trans', 'trans')]
+FR_COLOR = {'tanker': '#C8102E', 'cargo': '#D9631E', 'parcel': '#0F7C8C', 'service': '#6B5B4B', 'trans': '#5A7D2A'}
+def fr_cat(svc):
+    if svc.startswith('Commuter'): return None
+    for w, c in FR_CAT:
+        if re.search(r'\b%s\b' % w, svc): return c
+    return None
+existing = set(stations)
+fr_trips = []; fr_patterns = collections.defaultdict(collections.Counter); fr_meta = {}; fr_pairs = {}; fr_vmax = {}
+fr_count = collections.Counter(); fr_new = {}
+for no, svc, route in gdb.execute('select no, service, route from trains'):
+    svc = svc.strip(); svc = svc[0].upper() + svc[1:]
+    cat = fr_cat(svc)
+    if not cat: continue
+    lid = 'f-' + re.sub(r'[^a-z0-9]+', '-', svc.lower()).strip('-')
+    pts = []
+    for seq, st, kind, a, d, est in gdb.execute('select seq, station, kind, arr_s, dep_s, estimated from schedule where train_no=? order by seq', (no,)):
+        c = g_coord(st)
+        if not c: missing_codes[st] += 1; continue
+        if a is None and d is None and kind == 'pass': pts.append([st, None, None, 0, c]); continue
+        if a is None: a = d
+        if d is None: d = a
+        pts.append([st, a, d, (1 if kind in ('stop', 'origin_or_end', 'halt') else 0) | (2 if est else 0), c])
+    timed = [i for i, p in enumerate(pts) if p[1] is not None]
+    if len(timed) < 2: continue
+    pts = pts[timed[0]:timed[-1] + 1]; timed = [i - timed[0] for i in timed]
+    for i0, i1 in zip(timed, timed[1:]):
+        if i1 - i0 < 2: continue
+        cum = [0]
+        for k in range(i0 + 1, i1 + 1): cum.append(cum[-1] + hav(pts[k - 1][4][:2], pts[k][4][:2]))
+        for k in range(i0 + 1, i1):
+            f = cum[k - i0] / (cum[-1] or 1); t = round(pts[i0][2] + (pts[i1][1] - pts[i0][2]) * f)
+            pts[k][1] = pts[k][2] = t; pts[k][3] |= 2
+    pts[0][3] |= 1; pts[-1][3] |= 1
+    sids = [p[0] for p in pts]
+    for p in pts:
+        if p[0] not in existing:
+            s = add_station(p[0], p[4][2], p[4][0], p[4][1], 'barang', lid); fr_new[p[0]] = s
+        elif p[0] in fr_new: add_station(p[0], p[4][2], p[4][0], p[4][1], 'barang', lid)
+    for a, b in zip(sids, sids[1:]):
+        if a != b: make_seg('rail', a, b)
+    dep = [p[2] for p in pts]; arr = [p[1] for p in pts]; flags = [p[3] for p in pts]
+    fr_trips.append(pack('KA ' + no, lid, stations[sids[-1]]['name'], sids, dep, arr, flags))
+    fr_patterns[lid][tuple(s for s, f in zip(sids, flags) if f & 1)] += 1
+    fr_meta[lid] = (svc, cat); fr_count[cat] += 1
+    fr_pairs.setdefault(lid, set()).update(seg_key(a, b) for a, b in zip(sids, sids[1:]) if a != b)
+    vm = [v for (v,) in gdb.execute('select vmax from stops where train_no=? and vmax>0', (no,))]
+    if vm: fr_vmax[lid] = max(fr_vmax.get(lid, 0), max(vm))
+fr_lines = []
+for lid, pats in fr_patterns.items():
+    svc, cat = fr_meta[lid]
+    ordered = sorted(pats.items(), key=lambda kv: (-len(kv[0]) * kv[1], -len(kv[0])))
+    main = list(ordered[0][0]); covered = set(main); branches = []
+    for p, _ in ordered[1:]:
+        if set(p) - covered and len(branches) < 4: branches.append(list(p)); covered |= set(p)
+    base_name = re.sub(r'\s*\b(Cargo|Tanker|Service|Trans)\b\s*', ' ', svc).strip()
+    fr_lines.append({'id': lid, 'short': ''.join(w[0] for w in base_name.split()[:2]).upper(), 'svc': svc,
+                     'name': ('KA ' + base_name) if cat != 'parcel' else 'KA ' + svc, 'cat': cat,
+                     'color': FR_COLOR[cat], 'text': '#FFFFFF', 'sys': 'barang', 'stations': main, 'branches': branches,
+                     'sched': 'timetable', 'src': 'gapeka', 'fak': False, 'bundle': 'freight', 'vmax': fr_vmax.get(lid),
+                     'pairs': sorted(fr_pairs[lid])})
+fr_seg_keys = set()
+for t in fr_trips:
+    for a, b in zip(t[3], t[3][1:]):
+        if a != b: fr_seg_keys.add(seg_key(a, b))
+fr_segs = {k: v for k, v in segs.items() if k in fr_seg_keys and k not in core_seg_keys and k not in kai_seg_keys}
+for s in fr_new.values(): s['xfer'] = []
+fr_lines.sort(key=lambda l: (l['cat'], l['name']))
+json.dump({'v': 2, 'meta': META, 'cats': dict(fr_count), 'lines': fr_lines, 'segs': fr_segs,
+           'stations': sorted(fr_new.values(), key=lambda s: s['name']), 'daily': fr_trips},
+          open(os.path.join(A.out, 'freight.json'), 'w'), separators=(',', ':'), ensure_ascii=False)
+print('freight trips', len(fr_trips), dict(fr_count), 'lines', len(fr_lines), 'new stations', len(fr_new), 'segs', len(fr_segs))

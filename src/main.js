@@ -1,14 +1,17 @@
 import maplibregl from 'maplibre-gl';
 import { Engine, jakartaClock, dayType, fmt, dur, addDays, VMAX } from './sched.js';
 import FLEET from '../public/data/fleet.json';
-import { STOCK, stockKey, LEGEND, spriteCanvas, carFeatures, cabCanvas, CABW } from './stock.js';
+import { STOCK, stockKey, LEGEND, LEGEND_FREIGHT, spriteCanvas, carFeatures, cabCanvas, CABW } from './stock.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const app = $('#app'), view = $('#view'), pbody = $('#pbody');
 const STYLE = 'https://tiles.openfreemap.org/styles/positron';
-const SYS_LABEL = { krl: 'KRL', mrt: 'MRT', lrtj: 'LRT Jakarta', jbdb: 'LRT Jabodebek', bandara: 'Bandara', whoosh: 'Whoosh', regional: 'Commuter daerah', kai: 'KA antarkota' };
-const CHIP_SYS = [['all', 'Semua'], ['krl', 'KRL'], ['mrt', 'MRT'], ['lrt', 'LRT'], ['bandara', 'Bandara'], ['whoosh', 'Whoosh'], ['kai', 'Antarkota']];
+const SYS_LABEL = { krl: 'KRL', mrt: 'MRT', lrtj: 'LRT Jakarta', jbdb: 'LRT Jabodebek', bandara: 'Bandara', whoosh: 'Whoosh', regional: 'Commuter daerah', kai: 'KA antarkota', barang: 'KA barang' };
+const CHIP_SYS = [['all', 'Semua'], ['krl', 'KRL'], ['mrt', 'MRT'], ['lrt', 'LRT'], ['bandara', 'Bandara'], ['whoosh', 'Whoosh'], ['kai', 'Antarkota'], ['barang', 'Barang']];
+// KA barang categories as named in GAPEKA (suffix of the service name). GAPEKA does not list the commodity or shipper.
+const FCAT = { cargo: ['Cargo', 'barang umum', '#D9631E'], tanker: ['Tanker', 'KA ketel', '#C8102E'], parcel: ['Parcel', 'paket & kiriman', '#0F7C8C'], service: ['Service', 'KA barang lain', '#6B5B4B'], trans: ['Trans', 'KA barang lain', '#5A7D2A'] };
+const fcatName = (l) => { const c = FCAT[l.cat] || FCAT.service; return `${c[0]} (${c[1]})`; };
 const chipOf = (sys) => (sys === 'lrtj' || sys === 'jbdb' ? 'lrt' : sys === 'regional' ? 'kai' : sys);
 const QUICK = ['MRI', 'THB', 'SUD', 'JNG', 'DU', 'GMR', 'PSE', 'BD', 'YK', 'SGU'];
 const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem('sepur:' + k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem('sepur:' + k, JSON.stringify(v)); } catch {} } };
@@ -20,14 +23,16 @@ const SRC = {
   'shiori-lrtj': () => `Jadwal LRT Jakarta dari ${A_SH}. Waktu tiba di stasiun akhir ditaksir.`,
   'shiori-jbdb': () => `Jadwal LRT Jabodebek hari kerja dan akhir pekan dari ${A_SH}. Waktu tiba di stasiun akhir ditaksir.`,
   'shiori-apcgk': () => `Jadwal Skytrain Bandara Soekarno-Hatta dari poster jadwal, via ${A_SH}.`,
+  barang: () => `KA barang dari GAPEKA 2026 (grafik perjalanan resmi KAI) wilayah Jawa, dibaca dengan <a href="https://github.com/transportforbandung/Gapeka-parser" target="_blank" rel="noopener">Gapeka-parser</a>: nomor, nama, asal–tujuan, dan jam asli. Kategori (Cargo, Tanker, Parcel, Service, Trans) diambil dari nama perjalanan di GAPEKA; <b>jenis muatan dan pemilik barang tidak tercantum</b>. Hari operasi tidak tercantum, jadi dianggap jalan setiap hari; KA barang sering tidak jalan tiap hari. Tidak mengangkut penumpang.`,
   freq: (l) => `<b>Perkiraan.</b> Jadwal resmi per kereta belum tersedia sebagai data terbuka. Kereta dibuat dari pola frekuensi yang diumumkan operator (kira-kira tiap ${esc((l.freq?.weekday || []).map((b) => b[2]).filter((v, i, a) => a.indexOf(v) === i).join('/'))} menit) dan kecepatan rata-rata. Nomor perjalanan buatan Sepur Live.`,
 };
-const srcOf = (l) => (l.sched === 'frequency' ? 'freq' : l.src || (l.sys === 'krl' ? 'krl' : 'gapeka'));
+const srcOf = (l) => (l.sys === 'barang' ? 'barang' : l.sched === 'frequency' ? 'freq' : l.src || (l.sys === 'krl' ? 'krl' : 'gapeka'));
 
 let NET, TRIPS, E, map;
 const S = {
   tab: 'peta', detail: null, filter: 'all', follow: false, threeD: false, ug: false,
-  q: '', at: null, layers: LS.get('layers', { krl: true, mrt: true, lrtj: true, jbdb: true, bandara: true, whoosh: true, regional: true, kai: true, stations: true, net: true, labels: true }),
+  q: '', at: null, layers: { krl: true, mrt: true, lrtj: true, jbdb: true, bandara: true, whoosh: true, regional: true, kai: true, barang: true, terminals: false, stations: true, net: true, labels: true, ...LS.get('layers', {}) },
+  fcats: LS.get('fcats', Object.keys(FCAT)), frState: 'wait',
   fav: LS.get('fav', null), recent: LS.get('recent', []), me: null, places: [], placeQ: '',
   plan: LS.get('plan', { from: null, to: null }), planRes: null, pick: null, pickQ: '',
   ttDate: null, ttDir: 0, ttHour: null, showPass: false, kaiState: 'loading',
@@ -49,7 +54,9 @@ const lineOf = (id) => E.lines.get(id);
 const stOf = (id) => E.st.get(id);
 const lb = (l, ring) => `<span class="lb${ring ? ' ring' : ''}" style="${ring ? 'border-color' : 'background'}:${esc(l.color)}">${esc(l.short)}</span>`;
 const dots = (s) => `<span class="dots">${s.lines.map(lineOf).filter(Boolean).slice(0, 6).map((l) => `<i style="background:${esc(l.color)}"></i>`).join('')}</span>`;
-const isKA = (l) => !!l && (l.sys === 'kai' || l.sys === 'regional');
+const isKA = (l) => !!l && (l.sys === 'kai' || l.sys === 'regional' || l.sys === 'barang');
+const isFr = (l) => !!l && l.sys === 'barang';
+const FRTAG = '<em class="frt">KA barang</em>';
 const shortId = (id) => id.replace(/^(KA|MRT|LRTJ|JBDB|SKY) /, '');
 function trainName(t) {
   const l = lineOf(t.line);
@@ -57,10 +64,11 @@ function trainName(t) {
   if (isKA(l) || l.id === 'kcic-f' || l.id === 'ka-bst') return `${t.id} ${l.name}`;
   return /^\d/.test(t.id) ? `KA ${t.id}` : t.id;
 }
-const TYPE = { krl: 'KRL Commuter Line', mrt: 'MRT (kereta perkotaan)', lrtj: 'LRT (kereta ringan)', jbdb: 'LRT (kereta ringan)', bandara: 'Kereta bandara', whoosh: 'Kereta cepat', regional: 'KA lokal / commuter daerah', kai: 'KA antarkota' };
+const TYPE = { krl: 'KRL Commuter Line', mrt: 'MRT (kereta perkotaan)', lrtj: 'LRT (kereta ringan)', jbdb: 'LRT (kereta ringan)', bandara: 'Kereta bandara', whoosh: 'Kereta cepat', regional: 'KA lokal / commuter daerah', kai: 'KA antarkota', barang: 'KA barang · tidak mengangkut penumpang' };
 /** Name, number, type and class of a trip for cards and labels (names come from the timetable data). */
 /* ---------- rolling stock illustration + speed ---------- */
 function fleetKey(l) {
+  if (l.sys === 'barang') return l.cat === 'trans' ? 'fservice' : 'f' + (l.cat || 'service');
   if (l.id === 'krl-lm') return 'lokal'; // Rangkasbitung–Merak is not electrified
   if (l.sys === 'krl' || l.id === 'g-commuter-line-yogyakarta') return 'krl';
   if (l.sys === 'mrt' || l.sys === 'lrtj' || l.sys === 'jbdb') return l.sys;
@@ -74,7 +82,8 @@ function fleetFig(l, cls = '') {
   const f = FLEET[fleetKey(l)]; if (!f) return '';
   return `<figure class="fleet ${cls}"><img src="${esc(f.img)}" alt="${esc(f.caption)}" loading="lazy" decoding="async" width="640" height="360"><figcaption><b>${esc(f.model)}</b><span class="form">Rangkaian umum: ${esc(STOCK[stockKey(l)].note)}</span><span>Ilustrasi: tipe armada yang umum dipakai, bukan unit yang sedang jalan · Foto <a href="${esc(f.source)}" target="_blank" rel="noopener">${esc(f.author)}</a>, <a href="${esc(f.licenseUrl || f.source)}" target="_blank" rel="noopener">${esc(f.license)}</a> via Wikimedia Commons</span></figcaption></figure>`;
 }
-const kmh = (v, l) => Math.round(Math.min(v * 3.6, VMAX[l.sys] || 350));
+const vcap = (l) => l.vmax || VMAX[l.sys] || 350; // freight: highest speed limit printed for the train in GAPEKA
+const kmh = (v, l) => Math.round(Math.min(v * 3.6, vcap(l)));
 /** Current estimated speed text for a trip at time t. */
 function speedNow(trip, t) {
   const l = lineOf(trip.line), s = E.state(trip, t);
@@ -89,7 +98,7 @@ function trainInfo(t) {
   const l = lineOf(t.line);
   const name = l.id === 'kcic' ? 'Whoosh' : l.name;
   const num = t.est ? 'Nomor buatan Sepur Live' : /^\d/.test(t.id) ? `KA ${t.id}` : t.id.replace(/^SKY /, 'Skytrain ').replace(/^JBDB /, 'LRT ').replace(/^LRTJ /, 'LRT ');
-  const type = l.id === 'kcic-f' ? 'KA Feeder kereta cepat' : TYPE[l.sys] || 'Kereta';
+  const type = l.id === 'kcic-f' ? 'KA Feeder kereta cepat' : isFr(l) ? `KA barang · ${fcatName(l)}` : TYPE[l.sys] || 'Kereta';
   const cls = l.sys === 'kai' && /^Argo /.test(l.name) ? 'Eksekutif (kereta Argo)' : null;
   const short = isKA(l) || l.id === 'ka-bst' || l.id === 'kcic-f' ? name : t.est ? name : `${name.replace(/^Commuter Line /, 'CL ')}`;
   return (t._info = { name, num, type, cls, short, label: `${isKA(l) || t.est || l.id === 'ka-bst' || l.id === 'kcic-f' ? name : num.replace(/^KA /, short + ' ')} → ${shortHead(t.head)}` });
@@ -119,6 +128,7 @@ async function boot() {
     return;
   }
   E = new Engine(NET, TRIPS);
+  E.freightOn = (l) => S.layers.barang && S.fcats.includes(l?.cat);
   bar(0.85);
   initMap();
   bindUI();
@@ -134,14 +144,36 @@ async function boot() {
     else if (!busyTyping()) render(true);
     if (S.detail) focusDetail(false);
     app.dataset.kai = 'ok';
+    loadFreight();
   }).catch(() => { S.kaiState = 'fail'; render(true); });
 }
 
+/** KA barang (GAPEKA freight paths): loaded after the intercity bundle because they share its track sections. */
+function loadFreight() {
+  S.frState = 'loading';
+  return getJSON('/data/freight.json').then((fr) => {
+    E.addFreight(fr); S.frState = 'ok';
+    if (!NET.systems.some((x) => x.id === 'barang')) NET.systems.push({ id: 'barang', name: 'KA barang', operator: 'PT Kereta Api Indonesia (Persero)', sched: 'timetable', src: 'GAPEKA 2026 · tidak mengangkut penumpang' });
+    act = E.active(clock()); actT = performance.now(); actKey = ''; lastRunning = E.running(clock(), act);
+    if (map?.getSource('lines')) map.getSource('lines').setData(lineFeatures());
+    if (!busyTyping()) render(true);
+    if (S.detail) focusDetail(false);
+    app.dataset.freight = 'ok';
+  }).catch(() => { S.frState = 'fail'; });
+}
+const frOn = (l) => !isFr(l) || (S.layers.barang && S.fcats.includes(l.cat));
+
 /* ---------- map ---------- */
 function lineFeatures() {
-  const f = [];
+  const f = [], pax = new Set();
+  for (const l of E.allLines()) if (!isFr(l)) {
+    if (l.pairs) l.pairs.forEach((k) => pax.add(k));
+    for (const p of [l.stations, ...(l.branches || [])]) for (let i = 1; i < p.length; i++) pax.add(p[i - 1] < p[i] ? p[i - 1] + '>' + p[i] : p[i] + '>' + p[i - 1]);
+  }
   for (const l of E.allLines()) {
     const done = new Set();
+    // freight: only the sections no passenger line uses (port / yard / siding lines); elsewhere it shares their track
+    if (isFr(l)) { for (const k of l.pairs || []) { if (pax.has(k)) continue; pax.add(k); const [a, b] = k.split('>'); f.push({ type: 'Feature', properties: { line: l.id, sys: l.sys, color: l.color, ka: 1 }, geometry: { type: 'LineString', coordinates: E.seg(a, b).coords } }); } continue; }
     // GAPEKA lines list every track section their trains use (including stations passed without stopping)
     if (l.pairs) { for (const k of l.pairs) { const [a, b] = k.split('>'); f.push({ type: 'Feature', properties: { line: l.id, sys: l.sys, color: l.color, ka: isKA(l) ? 1 : 0 }, geometry: { type: 'LineString', coordinates: E.seg(a, b).coords } }); } continue; }
     for (const p of [l.stations, ...(l.branches || [])])
@@ -223,6 +255,7 @@ function initMap() {
     map.addLayer({ id: 'tr-t', type: 'symbol', source: 'trains', minzoom: 10.5, maxzoom: CARZ, filter: ['==', ['get', 'dim'], 0], layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 10.5, 8.5, 14, 10], 'text-radial-offset': 1.25, 'text-variable-anchor': ['right', 'left', 'top', 'bottom'], 'text-optional': true, 'symbol-sort-key': ['get', 'sk'], 'text-padding': 1 }, paint: { 'text-color': ['get', 'tc'], 'text-halo-color': ['get', 'color'], 'text-halo-width': 2.4 } });
     map.addLayer({ id: 'tr-n', type: 'symbol', source: 'trains', maxzoom: CARZ, layout: { 'text-field': ['get', 'nm'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-radial-offset': 1.6, 'text-variable-anchor': ['left', 'right', 'top', 'bottom', 'top-left', 'bottom-right'], 'text-justify': 'auto', 'text-max-width': 16, 'text-optional': true, 'text-padding': 3, 'symbol-sort-key': ['get', 'sk'] }, paint: { 'text-color': '#1d1d22', 'text-halo-color': '#fff', 'text-halo-width': 2 } });
     jplLayers();
+    if (S.layers.terminals) setTimeout(setTerminals, 0);
     map.addSource('me', { type: 'geojson', data: FC() });
     map.addLayer({ id: 'me', type: 'circle', source: 'me', paint: { 'circle-radius': 7, 'circle-color': '#2F7BF6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
     const vsrc = Object.entries(map.getStyle().sources).find(([, s]) => s.type === 'vector')?.[0];
@@ -259,7 +292,7 @@ function initMap() {
     if (S.detail) focusDetail(false);
     else if (S.tab === 'rute' && S.planRes?.length) drawJourney(S.planRes[0], false);
     tick();
-    window.__map = map; window.__sepurDebug = { E, S, clock, jplShown: () => (JPL ? JPL.x.filter(jpass).map((r) => r[3]) : []) };
+    window.__map = map; window.__sepurDebug = { E, S, clock, showCard, jplShown: () => (JPL ? JPL.x.filter(jpass).map((r) => r[3]) : []) };
     requestAnimationFrame(frame);
     app.removeAttribute('data-loading');
   });
@@ -293,7 +326,7 @@ function frame(now) {
   lastFrame = now;
   const t0 = performance.now();
   const c = clock();
-  const key = c.date + (E.kai ? 'k' : '');
+  const key = c.date + (E.kai ? 'k' : '') + (E.fr ? 'f' : '');
   if (now - actT > 1000 || key !== actKey) { act = E.active(c); actT = now; actKey = key; }
   lastRunning = E.running(c, act);
   drawTrains(lastRunning);
@@ -316,7 +349,7 @@ function drawTrains(run) {
   let selRun = null;
   for (const r of run) {
     const l = lineOf(r.trip.line);
-    if (!l || !S.layers[l.sys]) continue;
+    if (!l || !S.layers[l.sys] || !frOn(l)) continue;
     const [x, y] = r.s.p;
     const isSel = r.trip.id === sel;
     if (isSel) selRun = r;
@@ -394,7 +427,7 @@ function cardHtml(id, date, liveOnly = false) {
   const live = `<div class="nowl">${now}</div>${nxt}
     <div class="prog"><i style="width:${pct}%"></i></div>
     <div class="spd"><div><span>Kecepatan</span><b>${vtxt}</b></div><div><span>Rata-rata</span><b>${kmh(sp.avg, l)}<small> km/j</small></b></div><div><span>Puncak</span><b>≈ ${kmh(sp.vmax, l)}<small> km/j</small></b></div></div>
-    <div class="tags">${trip.est ? '<span class="badge est">Jadwal perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'}${l.fak ? '<span class="badge est">Fakultatif</span>' : ''}<span class="badge">Posisi &amp; kecepatan perkiraan dari jadwal, bukan GPS</span></div>
+    <div class="tags">${trip.est ? '<span class="badge est">Jadwal perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'}${l.fak ? '<span class="badge est">Fakultatif</span>' : ''}${isFr(l) ? `<span class="badge fr">KA barang · tidak mengangkut penumpang</span><span class="badge">${esc(fcatName(l))} · muatan tidak tercantum</span>${l.near?.length ? `<span class="badge">Ujung rute dekat ${esc(l.near[0][1])} (OSM)</span>` : ''}` : ''}<span class="badge">Posisi &amp; kecepatan perkiraan dari jadwal, bukan GPS</span></div>
     <div class="acts"><button type="button" class="btn small primary" data-open="train:${esc(trip.id)}:${trip.date}">Detail lengkap</button><button type="button" class="btn small" data-act="card-follow">${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button></div>`;
   if (liveOnly) return live;
   const fl = FLEET[fleetKey(l)];
@@ -434,6 +467,30 @@ function placeCard(p, html) {
   });
 }
 function closeCard() { S.card = null; S.jcard = null; S.scard = null; cardPop?.remove(); }
+
+/* ---------- freight places from OpenStreetMap: yards, fuel terminals, container terminals / dry ports ---------- */
+const TCAT = { fuel: ['Terminal / depo BBM', '#C8102E'], cargo: ['Terminal peti kemas / barang', '#D9631E'], yard: ['Emplasemen / area rel', '#8B5A2B'] };
+let TERM = null;
+function setTerminals() {
+  if (!map?.getStyle()) return;
+  if (!S.layers.terminals) { for (const id of ['term-c', 'term-l']) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); return; }
+  if (map.getLayer('term-c')) { for (const id of ['term-c', 'term-l']) map.setLayoutProperty(id, 'visibility', 'visible'); return; }
+  (TERM ? Promise.resolve(TERM) : getJSON('/data/terminals.json')).then((d) => {
+    TERM = d; if (map.getLayer('term-c')) return;
+    map.addSource('term', { type: 'geojson', data: FC(d.x.map((r, i) => ({ type: 'Feature', properties: { i, k: r[2], n: r[3] || '' }, geometry: { type: 'Point', coordinates: [r[0], r[1]] } }))) });
+    const col = ['match', ['get', 'k'], ...Object.entries(TCAT).flatMap(([k, v]) => [k, v[1]]), '#888'];
+    map.addLayer({ id: 'term-c', type: 'circle', source: 'term', minzoom: 8, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3, 14, 7], 'circle-color': '#fff', 'circle-stroke-color': col, 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 2, 14, 3.5] } }, 'tr-halo');
+    map.addLayer({ id: 'term-l', type: 'symbol', source: 'term', minzoom: 12, filter: ['!=', ['get', 'n'], ''], layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, 1], 'text-anchor': 'top', 'text-optional': true }, paint: { 'text-color': col, 'text-halo-color': '#fff', 'text-halo-width': 1.6 } }, 'tr-halo');
+    map.on('click', 'term-c', (e) => { const f = e.features[0]; if (f) termPop(f.properties.i, e.lngLat); });
+    map.on('mouseenter', 'term-c', () => (map.getCanvas().style.cursor = 'pointer'));
+    map.on('mouseleave', 'term-c', () => (map.getCanvas().style.cursor = ''));
+  }).catch(() => toast('Data terminal barang belum bisa dimuat'));
+}
+function termPop(i, ll) {
+  const r = TERM.x[i], [t, c] = TCAT[r[2]] || ['Tempat barang', '#888'], id = r[5];
+  const url = `https://www.openstreetmap.org/${id[0] === 'n' ? 'node' : id[0] === 'w' ? 'way' : 'relation'}/${id.slice(1)}`;
+  setTimeout(() => { S.card = null; cardPop.setLngLat(ll).setHTML(`<div class="tcard tterm" style="--c:${c}"><div class="th"><span class="lb" style="background:${c}">▣</span><div class="tt2"><b>${esc(r[3] || t)}</b><span>${esc(t)}${r[4] ? ' · ' + esc(r[4]) : ''}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>${r[6] ? `<div class="kv"><span>Stasiun terdekat</span><b>${esc(r[6])}</b></div>` : ''}<span class="credit">Dari tag OpenStreetMap (<a href="${url}" target="_blank" rel="noopener">lihat di OSM</a>), © kontributor OpenStreetMap, ODbL. Nama &amp; operator sesuai tag OSM; bisa tidak lengkap.</span></div>`).addTo(map); }, 0);
+}
 
 /* ---------- level crossings (JPL) from OpenStreetMap ---------- */
 // status names follow the categories used by DJKA / 168railway, but are only set where the OSM tags say so
@@ -529,7 +586,7 @@ function jplNext(x) {
   if (!x.a) return '<div class="jnone">Titik ini tidak berada di jalur yang punya jadwal di Sepur Live, jadi kereta yang lewat belum bisa diperkirakan.</div>';
   const ps = E.passes(x.a, x.b, x.dA, clock(), 3 * 3600, innerWidth < 760 ? 2 : 5);
   if (!ps.length) return '<div class="jnone">Tidak ada kereta terjadwal lewat dalam 3 jam ke depan.</div>';
-  return `<div class="jnext">${ps.map((q) => { const l = lineOf(q.trip.line), i = trainInfo(q.trip); return `<button type="button" class="jn" data-open="train:${esc(q.trip.id)}:${q.trip.date}">${lb(l)}<span class="main"><b>${esc(i.short)} · ${esc(i.num)}</b><span>ke ${esc(q.trip.head)} · ≈ ${kmh(q.v, l)} km/j</span></span><span class="side"><b>≈ ${fmt(Math.round(q.at) % 86400)}</b><span>${q.dt < 30 ? 'sedang lewat' : mins(q.dt)}</span></span></button>`; }).join('')}</div>`;
+  return `<div class="jnext">${ps.map((q) => { const l = lineOf(q.trip.line), i = trainInfo(q.trip); return `<button type="button" class="jn" data-open="train:${esc(q.trip.id)}:${q.trip.date}">${lb(l)}<span class="main"><b>${esc(i.short)} · ${esc(i.num)}</b><span>${isFr(l) ? FRTAG + ' · ' : ''}ke ${esc(q.trip.head)} · ≈ ${kmh(q.v, l)} km/j</span></span><span class="side"><b>≈ ${fmt(Math.round(q.at) % 86400)}</b><span>${q.dt < 30 ? 'sedang lewat' : mins(q.dt)}</span></span></button>`; }).join('')}</div>`;
 }
 const viewers = (p) => `<a href="https://www.mapillary.com/app/?lat=${p[1].toFixed(6)}&lng=${p[0].toFixed(6)}&z=18" target="_blank" rel="noopener">Mapillary</a><a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p[1].toFixed(6)},${p[0].toFixed(6)}" target="_blank" rel="noopener">Street View</a><a href="https://commons.wikimedia.org/wiki/Special:Nearby#/coord/${p[1].toFixed(5)},${p[0].toFixed(5)}" target="_blank" rel="noopener">Commons sekitar</a>`;
 function jplPhoto(x) {
@@ -603,7 +660,7 @@ function stationPop(id) {
 /* ---------- views ---------- */
 function counts() {
   const c = { all: 0 };
-  for (const r of lastRunning) { const l = lineOf(r.trip.line); if (!l) continue; const k = chipOf(l.sys); c[k] = (c[k] || 0) + 1; c.all++; }
+  for (const r of lastRunning) { const l = lineOf(r.trip.line); if (!l || !frOn(l)) continue; const k = chipOf(l.sys); c[k] = (c[k] || 0) + 1; c.all++; }
   return c;
 }
 function homeView() {
@@ -617,7 +674,7 @@ function homeView() {
   }
   h += favCard(c);
   if (S.recent.length) h += `<div class="sech"><h2>Terakhir dibuka</h2></div><div class="list">${S.recent.slice(0, 5).map((r) => recentRow(r)).join('')}</div>`;
-  const runningNow = lastRunning.filter((r) => S.filter === 'all' || chipOf(lineOf(r.trip.line)?.sys) === S.filter)
+  const runningNow = lastRunning.filter((r) => frOn(lineOf(r.trip.line))).filter((r) => S.filter === 'all' || chipOf(lineOf(r.trip.line)?.sys) === S.filter)
     .map((r) => ({ r, nt: nextTime(r.trip, r.s) })).sort((a, b) => a.nt - b.nt).slice(0, 12).map((x) => x.r);
   if (runningNow.length) h += `<div class="sech"><h2>Sedang jalan</h2><span>${S.filter === 'all' ? 'semua jenis' : esc(CHIP_SYS.find((x) => x[0] === S.filter)[1])}</span></div><div class="list">${runningNow.map((r) => trainRow(r.trip, r.s)).join('')}</div>`;
   if (S.kaiState === 'loading') h += `<div class="note">Memuat jadwal KA antarkota (GAPEKA 2026)…</div>`;
@@ -645,11 +702,11 @@ function trainRow(t, s) {
   const nx = s.kind === 'dwell' ? s.at : s.nextStop ?? s.next;
   const where = s.kind === 'dwell' ? `di ${stOf(t.sids[s.at]).name}` : `menuju ${stOf(t.sids[nx]).name}`;
   const tm = s.kind === 'dwell' ? t.dep[nx] : t.arr[nx];
-  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>ke ${esc(t.head)}</b><span>${esc(trainInfo(t).short)} · ${esc(trainInfo(t).num)} · ${esc(where)}</span></span><span class="side"><b>${fmt(tm)}</b><span>${nx === t.sids.length - 1 ? 'tiba akhir' : s.kind === 'dwell' ? 'berangkat' : 'tiba'}</span></span></button>`;
+  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>ke ${esc(t.head)}</b><span>${isFr(l) ? FRTAG + ' · ' : ''}${esc(trainInfo(t).short)} · ${esc(trainInfo(t).num)} · ${esc(where)}</span></span><span class="side"><b>${fmt(tm)}</b><span>${nx === t.sids.length - 1 ? 'tiba akhir' : s.kind === 'dwell' ? 'berangkat' : 'tiba'}</span></span></button>`;
 }
 function depRow(d) {
   const t = d.trip, l = lineOf(t.line);
-  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>${esc(t.head)}</b><span>${esc(trainInfo(t).short)} · ${esc(trainInfo(t).num)}</span></span><span class="side"><b>${fmt(d.dep)}</b><span class="${d.wait < 300 ? 'soon' : ''}">${mins(d.wait)}</span></span></button>`;
+  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>${esc(t.head)}</b><span>${isFr(l) ? FRTAG + ' · ' : ''}${esc(trainInfo(t).short)} · ${esc(trainInfo(t).num)}</span></span><span class="side"><b>${fmt(d.dep)}</b><span class="${d.wait < 300 ? 'soon' : ''}">${mins(d.wait)}</span></span></button>`;
 }
 const tag = (l) => (l.sched === 'frequency' ? '<span class="badge est">Perkiraan</span>' : l.freqDays ? '<span class="badge real">Jadwal hari kerja</span><span class="badge est">Akhir pekan perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>');
 
@@ -770,10 +827,10 @@ function stationFull(s) {
     if (!rs.length) continue; any = true;
     const byLine = [...new Set(rs.map((r) => r.trip.line))].map(lineOf);
     h += `<div class="sech"><h2>${head.startsWith('Tiba') ? esc(head) : 'ke ' + esc(head)}</h2><span>${rs.length} · ${byLine.map((l) => esc(l.short)).slice(0, 4).join(' ')}</span></div>`;
-    h += `<div class="times">${rs.map((r) => { const l = lineOf(r.trip.line); const tm = r.terminates ? r.arr : r.dep; const past = nowSec >= 0 && tm < nowSec; return `<button type="button" class="tbtn${past ? ' past' : ''}${r.trip.est ? ' e' : ''}" data-open="train:${esc(r.trip.id)}:${r.trip.date}" style="--c:${esc(l.color)}" title="${esc(trainName(r.trip))}"><b>${fmt(tm)}</b><span>${esc(r.trip.est ? '~' : shortId(r.trip.id))}</span></button>`; }).join('')}</div>`;
+    h += `<div class="times">${rs.map((r) => { const l = lineOf(r.trip.line); const tm = r.terminates ? r.arr : r.dep; const past = nowSec >= 0 && tm < nowSec; return `<button type="button" class="tbtn${past ? ' past' : ''}${r.trip.est ? ' e' : ''}${isFr(l) ? ' f' : ''}" data-open="train:${esc(r.trip.id)}:${r.trip.date}" style="--c:${esc(l.color)}" title="${esc(trainName(r.trip))}${isFr(l) ? ' · KA barang' : ''}"><b>${fmt(tm)}</b><span>${esc(r.trip.est ? '~' : shortId(r.trip.id))}</span></button>`; }).join('')}</div>`;
   }
   if (!any) h += `<div class="empty"><b>Tidak ada kereta berhenti</b>Coba tanggal atau jalur lain.</div>`;
-  h += `<span class="credit">Waktu berangkat (stasiun akhir: waktu tiba). Di bawah waktu: nomor kereta. ~ = perkiraan. Nomor peron belum tersedia di data terbuka.</span>`;
+  h += `<span class="credit">Waktu berangkat (stasiun akhir: waktu tiba). Di bawah waktu: nomor kereta. ~ = perkiraan.${S.layers.barang && E.fr ? ' Kotak bergaris miring = KA barang (tidak mengangkut penumpang; sembunyikan di Tampilan peta).' : ''} Nomor peron belum tersedia di data terbuka.</span>`;
   return h;
 }
 
@@ -793,7 +850,7 @@ function legMax(trip, i, l) {
 }
 function speedSection(trip, t, l) {
   const sp = E.speedProfile(trip), vn = speedNow(trip, t);
-  const cap = VMAX[l.sys] || 350, top = Math.min(sp.vmax * 3.6, cap);
+  const cap = vcap(l), top = Math.min(sp.vmax * 3.6, cap);
   const ymax = Math.max(40, Math.ceil((top * 1.1) / 20) * 20);
   const W = 320, H = 120, L = 30, B = 18, T0 = sp.pts[0][0], T1 = sp.pts.at(-1)[0] || T0 + 1;
   const X = (tt) => L + ((tt - T0) / (T1 - T0)) * (W - L - 4), Y = (v) => 4 + (H - B - 4) * (1 - Math.min(v * 3.6, cap) / ymax);
@@ -807,7 +864,7 @@ function speedSection(trip, t, l) {
   let h = `<div class="sech"><h2>Kecepatan</h2><span>perkiraan dari jadwal, bukan GPS</span></div>`;
   h += `<div class="facts f3 spdf"><div class="fact"><span>Sekarang</span><b id="spd-now">${esc(vn.txt)}</b></div><div class="fact"><span>Rata-rata (dengan berhenti)</span><b>${kmh(sp.avg, l)} km/j</b></div><div class="fact"><span>Rata-rata saat jalan</span><b>${kmh(sp.runAvg, l)} km/j</b></div><div class="fact"><span>Puncak perkiraan</span><b>≈ ${kmh(sp.vmax, l)} km/j</b></div><div class="fact"><span>Jarak di rel</span><b>${(sp.D / 1000).toFixed(sp.D < 1e4 ? 1 : 0)} km</b></div><div class="fact"><span>Waktu tempuh</span><b>${dur(sp.T)}</b></div></div>`;
   h += `<figure class="spchart" style="--c:${esc(l.color)}"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafik perkiraan kecepatan ${esc(trainInfo(trip).name)} sepanjang perjalanan">${grid}<polygon points="${X(T0)},${Y(0)} ${line} ${X(T1)},${Y(0)}" class="ar"/><polyline points="${line}" class="ln"/>${ticks}${xl}<line id="spd-cur" x1="${cx}" x2="${cx}" y1="4" y2="${H - B}" class="cur"/></svg>
-  <figcaption>km/j menurut waktu · garis kecil = stasiun berhenti · garis putus = sekarang. Dihitung dari jarak rel OpenStreetMap dan waktu jadwal dengan profil percepatan/pengereman khas ${esc(SYS_LABEL[l.sys] || 'kereta')}; jadwal dibulatkan per menit, jadi angka per segmen bisa meleset.</figcaption></figure>`;
+  <figcaption>km/j menurut waktu · garis kecil = stasiun berhenti · garis putus = sekarang. Dihitung dari jarak rel OpenStreetMap dan waktu jadwal dengan profil percepatan/pengereman khas ${esc(SYS_LABEL[l.sys] || 'kereta')}${isFr(l) && l.vmax ? `, dibatasi ${l.vmax} km/j (batas kecepatan tertinggi kereta ini di GAPEKA)` : ''}; jadwal dibulatkan per menit, jadi angka per segmen bisa meleset.</figcaption></figure>`;
   return h;
 }
 function trainDetail(id) {
@@ -817,6 +874,7 @@ function trainDetail(id) {
   const info = trainInfo(trip);
   let h = `<div class="dhead">${lb(l)}<div class="t"><b>${esc(info.name)}</b><span>${esc(info.num)} · ${esc(info.type)}</span></div></div>`;
   h += fleetFig(l, 'big');
+  if (isFr(l)) h += `<div class="card frinfo"><b>KA barang · tidak mengangkut penumpang</b><div class="facts f2"><div class="fact"><span>Kategori (GAPEKA)</span><b>${esc(fcatName(l))}</b></div><div class="fact"><span>Muatan &amp; pemilik barang</span><b>Tidak tercantum di GAPEKA</b></div>${l.vmax ? `<div class="fact"><span>Batas kecepatan di GAPEKA</span><b>≤ ${l.vmax} km/j</b></div>` : ''}${l.near?.length ? `<div class="fact wide"><span>Dekat ujung rute, menurut OpenStreetMap</span><b>${l.near.map((n) => `${esc(n[1])}${n[2] && !n[1].includes(n[2]) ? ' · ' + esc(n[2]) : ''} <small>(${(n[4] / 1000).toFixed(1).replace('.', ',')} km dari St. ${esc(n[3])})</small>`).join('<br>')}</b></div>` : ''}<div class="fact"><span>Rangkaian di peta</span><b>${esc(STOCK[stockKey(l)].model)} · ${esc(STOCK[stockKey(l)].note)} (ilustrasi)</b></div></div><span class="credit">Nomor, nama, asal–tujuan, dan jam dari GAPEKA 2026. Bentuk rangkaian, warna gerbong, dan foto hanya ilustrasi tipe yang umum dipakai. ${l.near?.length ? ' Tempat di dekat ujung rute diambil dari tag OSM dan hanya petunjuk, bukan bukti jenis muatan.' : ''} KA barang tidak bisa dipilih di perencana perjalanan.</span></div>`;
   h += `<div class="facts f2"><div class="fact wide"><span>Tujuan</span><b>${esc(trip.head)}</b></div><div class="fact"><span>Dari</span><b>${esc(stOf(trip.sids[0]).name)}</b></div><div class="fact"><span>Berangkat → tiba</span><b>${fmt(trip.start)} → ${fmt(trip.end)}</b></div>${info.cls ? `<div class="fact"><span>Kelas</span><b>${esc(info.cls)}</b></div>` : ''}<div class="fact"><span>Berhenti</span><b>${trip.flags.filter((x) => x & 1).length} stasiun</b></div></div>`;
   h += `<div class="card white"><b id="train-status">${trainStatus(id, S.detail.date)}</b><div class="prog" style="--c:${esc(l.color)}"><i id="train-prog" style="width:${Math.round((s ? s.progress : t > trip.end ? 1 : 0) * 100)}%"></i></div><span class="credit">${trip.est ? '<span class="badge est">Perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'} ${dateNice(trip.date)} · ${dayLabel(trip.date)} · ${fmt(trip.start)}–${fmt(trip.end)} (${dur(trip.end - trip.start)})</span></div>`;
   h += `<div class="acts"><button type="button" class="btn small${S.follow ? ' primary' : ''}" data-act="follow"><svg class="i"><use href="#i-follow"/></svg>${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button><button type="button" class="btn small" data-act="sim-train"><svg class="i"><use href="#i-play"/></svg>Putar cepat</button><button type="button" class="btn small" data-act="share"><svg class="i"><use href="#i-share"/></svg>Bagikan</button></div>`;
@@ -1160,6 +1218,11 @@ function layersPanel() {
   const row = (k, t, sw) => `<label><input type="checkbox" data-layer="${k}" ${S.layers[k] ? 'checked' : ''}>${sw ? `<i class="sw" style="background:${sw}"></i>` : ''}${t}</label>`;
   el.innerHTML = `<h3>Tampilan peta <button type="button" data-act="layers-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></h3>
     <div class="grp">Kereta</div>${row('krl', 'KRL Commuter Line', '#E30A16')}${row('mrt', 'MRT Jakarta', '#CE0037')}${row('lrtj', 'LRT Jakarta', '#F16227')}${row('jbdb', 'LRT Jabodebek', '#20409A')}${row('bandara', 'KA Bandara & Skytrain', '#F2A900')}${row('whoosh', 'Whoosh & feeder', '#8C0023')}${row('regional', 'Commuter daerah', '#3B7A8C')}${row('kai', 'KA antarkota', '#6A2C91')}
+    <div class="grp">KA barang <span>GAPEKA 2026 · bukan untuk penumpang</span></div>${row('barang', 'Tampilkan KA barang di peta, papan & jadwal', '#D9631E')}
+    ${S.layers.barang ? `<div class="fcats" role="group" aria-label="Saring kategori KA barang">${Object.entries(FCAT).map(([k, [t, d, c]]) => `<label class="fc"><input type="checkbox" data-fcat="${k}" ${S.fcats.includes(k) ? 'checked' : ''}><i class="sw" style="background:${c}"></i>${t} <small>${d} · ${E.fr ? E.fr.cats[k] || 0 : '…'}</small></label>`).join('')}</div>` : ''}
+    <div class="tleg">${LEGEND_FREIGHT.map((k) => `<span><img src="${legendImg(k)}" alt="" height="12">${esc(STOCK[k].name)}<small>${esc(STOCK[k].model)} · ${esc(STOCK[k].note)}</small></span>`).join('')}</div>
+    <p class="jsrc">Kategori dari nama perjalanan di GAPEKA. Jenis muatan &amp; pemilik barang tidak tercantum; warna gerbong ketel bergaya Pertamina dan peti kemas hanya ilustrasi.</p>
+    ${row('terminals', 'Terminal barang, depo BBM &amp; emplasemen (OSM)', '#8B5A2B')}
     <div class="grp">Bentuk kereta di peta <span>formasi umum, ilustrasi</span></div><div class="tleg">${LEGEND.map((k) => `<span><img src="${legendImg(k)}" alt="" height="12">${esc(STOCK[k].name)}<small>${esc(STOCK[k].model)} · ${esc(STOCK[k].note)}</small></span>`).join('')}</div>
     <div class="grp">Peta</div>${row('stations', 'Stasiun')}${row('labels', 'Nama dan kode')}${row('net', 'Jaringan rel OpenStreetMap')}
     <div class="grp">Perlintasan sebidang (JPL)</div>${row('jpl', 'Tampilkan perlintasan sebidang', '#1E9E4A')}
@@ -1179,11 +1242,12 @@ function aboutSheet() {
   <h3>Dari mana jadwalnya?</h3>
   <ul><li><b>KRL Commuter Line:</b> ${SRC.krl()}</li>
   <li><b>KA antarkota, commuter daerah, KA Bandara, KA Feeder:</b> ${SRC.gapeka()}</li>
+  <li><b>KA barang:</b> ${SRC.barang()} Bentuk rangkaian, warna gerbong, dan foto hanya ilustrasi. Lapisan terminal barang, depo BBM, dan emplasemen dari tag OpenStreetMap.</li>
   <li><b>MRT Jakarta:</b> ${SRC['shiori-mrt']()}</li>
   <li><b>LRT Jakarta, LRT Jabodebek, Skytrain:</b> data terbuka ${A_SH}. Waktu tiba di stasiun akhir ditaksir.</li>
   <li><b>Whoosh:</b> <span class="badge est">Perkiraan</span> dari pola frekuensi yang diumumkan KCIC. Jadwal resminya belum tersedia sebagai data terbuka.</li>
   <li>Posisi dan prediksi tiba dihitung dari jadwal di atas geometri rel OpenStreetMap. <b>Ini bukan GPS</b>; keterlambatan dan gangguan tidak terlihat. Nomor peron belum ada di sumber data mana pun.</li></ul>
-  <h3>Perencana perjalanan</h3><p>Rute dihitung di perangkatmu dengan Connection Scan Algorithm atas semua jadwal di atas. Pindah kereta di stasiun yang sama minimal 3 menit; jalan kaki ke stasiun yang terhubung dihitung dari jaraknya.</p>
+  <h3>Perencana perjalanan</h3><p>Rute dihitung di perangkatmu dengan Connection Scan Algorithm atas semua jadwal di atas. KA barang tidak dipakai karena tidak mengangkut penumpang. Pindah kereta di stasiun yang sama minimal 3 menit; jalan kaki ke stasiun yang terhubung dihitung dari jaraknya.</p>
   <h3>Peta</h3><p>Data peta © kontributor OpenStreetMap (ODbL). Tile vektor dari OpenFreeMap. Pencarian tempat oleh Photon (komoot).</p>
   <h3>Privasi</h3><p>Tidak ada akun, tidak ada pelacakan. Stasiunku, riwayat, rute, dan pilihan lapisan disimpan hanya di browser ini.</p>
   <p class="credit">Tidak berafiliasi dengan KAI, KAI Commuter, MRT Jakarta, LRT Jakarta, KCIC, atau InJourney. Kode sumber: <a href="https://github.com/podsni/sepur-live" target="_blank" rel="noopener">github.com/podsni/sepur-live</a> (MIT).</p></div>`;
@@ -1250,7 +1314,9 @@ function bindUI() {
     else if (a === 'follow') { S.follow = !S.follow; toast(S.follow ? 'Peta ikut bergerak bersama kereta ini' : 'Berhenti mengikuti'); render(true); }
   });
   document.addEventListener('change', (e) => {
-    const k = e.target.dataset?.layer; if (k === 'jpl') { setJPL(e.target.checked); return; } if (k) { S.layers[k] = e.target.checked; applyLayers(); return; }
+    const k = e.target.dataset?.layer; if (k === 'jpl') { setJPL(e.target.checked); return; } if (k === 'terminals') { S.layers.terminals = e.target.checked; setTerminals(); applyLayers(); return; }
+    if (k) { S.layers[k] = e.target.checked; applyLayers(); if (k === 'barang') { layersPanel(); render(true); } return; }
+    const fc = e.target.dataset?.fcat; if (fc) { S.fcats = e.target.checked ? [...new Set([...S.fcats, fc])] : S.fcats.filter((x) => x !== fc); LS.set('fcats', S.fcats); render(true); return; }
     if (e.target.matches('[data-ttdate-input]') && e.target.value) { S.ttDate = e.target.value; S.ttHour = null; render(true); return; }
     const p = e.target.dataset?.plan;
     if (p === 'date' && e.target.value) { S.plan.date = e.target.value; if (S.plan.time == null) S.plan.time = Math.floor(clock().sec / 60) * 60; runPlan(false); }

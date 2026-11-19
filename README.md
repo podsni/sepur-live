@@ -97,6 +97,17 @@ A **perlintasan sebidang** layer (off by default; × button or layers panel; sav
 - **Card:** photo (or "Belum ada foto" with Mapillary / Street View / Commons links), road and road class, barrier, light, bell, attendant, Daop, **KM estimate**, number of tracks, the two stations it lies between, routes over it, **next trains passing** with estimated time and speed, a data-completeness level (tinggi / sedang / rendah) and the source, plus a link to view or fix the point in OSM.
 - JPL numbers and gatekeepers are **never invented**: "Nomor JPL" shows only an OSM `ref` tag (28 crossings), otherwise "Belum ada di data terbuka".
 
+### KA barang (freight trains)
+
+<img src="docs/screenshots/freight.webp" alt="Freight trains on the map: container wagons, Pertamina-style tank wagons, a tanker train card and the KA barang layer panel" width="820">
+
+All **114 freight paths in GAPEKA 2026** (27 services) run on the map with their real numbers, names, origin–destination and times: **Cargo 34**, **Tanker 48**, **Parcel 6**, **Service 24**, **Trans 2**. The category comes from the service name in GAPEKA (e.g. *Gamao Tanker*, *Kenlimas Cargo*). GAPEKA does **not** list the commodity or the shipper, so the app never claims one.
+
+- **Drawn by type** (typical consist, labelled *ilustrasi*): CC 206 + container flat wagons for Cargo, CC 201 + tank wagons in Pertamina-style red/blue for Tanker, CC 206 + baggage cars for Parcel, CC 201 + covered/hopper wagons for Service and Trans. Wagon by wagon from zoom 14, compact sprites below.
+- **Card and detail:** "KA barang · tidak mengangkut penumpang", category, "muatan tidak tercantum", estimated speed capped at the highest speed limit printed for that train in GAPEKA (Tanker 55, Cargo/Service 75, Parcel 100 km/h), a Commons photo per category with author and licence, and **OSM freight places near the end stations** (e.g. *Depo BBM Pertamina Larangan* 0.2 km from Larangan for Gamao Tanker), shown as a hint, not as proof of the load.
+- **Show/hide and filter:** layers panel → *KA barang* (on by default) with a filter per category. When on, freight appears in station boards and full-day timetables (hatched boxes), in line grids, in search (`2627`, `Gamao`) and in the **next trains passing** a level crossing, always marked *KA barang*. The **journey planner never uses freight**.
+- **Freight places layer** (off by default): 94 OSM places next to the rail network: 33 fuel/LPG facilities (Pertamina terminals and depots), 14 container/cargo terminals and dry ports (e.g. Cikarang Dry Port, JICT), 47 named rail yards and depots.
+
 ### Station photos
 
 | Desktop: panel + popup | Mobile |
@@ -124,6 +135,7 @@ On phones the panel is a draggable bottom sheet (peek / half / full) and cards a
 | Skytrain (Kalayang) Soekarno-Hatta | 1 | 166 daily | ShioriLabs commute | ✅ Real departures |
 | KA Bandara Soekarno-Hatta | 1 | 140 daily | **GAPEKA 2026** | ✅ Real planned times |
 | KA Feeder Whoosh Padalarang–Bandung | 1 | 72 daily | GAPEKA 2026 | ✅ Real planned times |
+| KA barang (freight, Java) — `freight.json` | 27 services | 114 daily | **GAPEKA 2026** | ✅ Real numbers, names, origin–destination and planned times. Category from the service name; commodity and shipper are **not** in the data. Wagons and photos are typical (*ilustrasi*). Not used by the planner. |
 | Whoosh (KCIC Jakarta–Bandung) | 1 | generated at runtime | Operator's published frequency pattern | ⚠️ **Estimate** ("Perkiraan") |
 | KA antarkota, commuter daerah, airport rail (Java) — `kai.json` | 107 (87 intercity, 18 regional, 2 airport) | 580 daily | **GAPEKA 2026** (KAI's working timetable), parsed with [Gapeka-parser](https://github.com/transportforbandung/Gapeka-parser) | ✅ Real planned times at stops. No day-of-operation field, so trains are assumed to run daily; *Fakultatif* services are flagged. Times at stations passed without stopping are estimates (`~`). |
 | Track and stations | — | 483 stations, 494 sections | OpenStreetMap (ODbL), Geofabrik Java extract | 488 of 494 sections follow real track; the other 6 are drawn straight |
@@ -299,15 +311,17 @@ sepur-live/
 │   ├── build.mjs              esbuild bundle + copy public/ → dist/
 │   ├── serve.mjs              tiny static server with gzip (port 5173)
 │   ├── extract_osm.py         OSM .pbf → railway ways, stations, route relations
-│   ├── build_data.py          OSM + Open-KRL + GAPEKA + ShioriLabs → network/trips/kai.json
+│   ├── build_data.py          OSM + Open-KRL + GAPEKA + ShioriLabs → network/trips/kai/freight.json
+│   ├── extract_freight_osm.py OSM .pbf → rail yards, fuel terminals, container terminals / dry ports
+│   ├── build_terminals.py     → terminals.json + OSM places near freight end stations
 │   ├── extract_jpl.py         OSM .pbf → crossings, rail/road ways at them, road pieces near track
 │   ├── fetch_stations.py      Wikidata/Commons photos + Wikipedia Daop/km → stations_x.json
 │   ├── fetch_commons_geo.py   geotagged Commons files near crossings
 │   ├── build_jpl.py           clean, merge, status, flyover/underpass, KM, Daop, photos → jpl.json
 │   └── fetch_fleet.py         rolling-stock photos → public/img/fleet + ATTRIBUTION.md
 ├── tests/
-│   ├── sched.test.js          20 unit tests (node:test)
-│   └── smoke.mjs              61 headless browser checks
+│   ├── sched.test.js          21 unit tests (node:test)
+│   └── smoke.mjs              73 headless browser checks
 ├── docs/screenshots/          images used in this README
 ├── test.sh                    build + unit + smoke against a local server
 ├── vercel.json                build settings and cache headers
@@ -351,8 +365,10 @@ git clone --depth 1 https://github.com/open-krl/pipeline openkrl
 curl -L -o raw/gapeka/gapeka.db https://github.com/transportforbandung/Gapeka-parser/raw/main/gapeka.db
 # ShioriLabs commute timetable SQL + stations_lat_lng.sql into raw/shiori/
 
-# 3) network, trips, intercity
+# 3) network, trips, intercity, freight
 python3 scripts/build_data.py --osm raw/osm_rail.json --krl openkrl --gapeka raw/gapeka/gapeka.db --shiori raw/shiori
+python3 scripts/extract_freight_osm.py java-latest.osm.pbf raw/freight_osm.json
+python3 scripts/build_terminals.py raw/freight_osm.json public/data            # -> terminals.json, freight.json "near"
 
 # 4) station extras, then level crossings
 python3 scripts/fetch_stations.py                                            # -> public/data/stations_x.json
@@ -361,7 +377,7 @@ python3 scripts/fetch_commons_geo.py raw/jpl_osm2.json raw/commons_geo.json
 python3 scripts/build_jpl.py raw/jpl_osm2.json                               # -> public/data/jpl.json
 
 # 5) rolling-stock pictures
-python3 scripts/fetch_fleet.py
+python3 scripts/fetch_fleet.py              # or only some keys: fetch_fleet.py fcargo ftanker
 ```
 
 `extract_jpl.py` reads the extract with node locations in an on-disk index (`sparse_file_array`) to keep memory low. The Wikidata/Commons scripts send a descriptive `User-Agent`, pause between requests and retry with back-off.
@@ -378,15 +394,15 @@ npm test             # unit tests only
 node tests/smoke.mjs https://sepur-live.vercel.app /tmp   # smoke test against any URL
 ```
 
-- **20 unit tests** (`tests/sched.test.js`): Jakarta clock and day types; data has the expected systems and real timetables; KRL train 1000 matches its planned board times; Argo Semeru 5 leaves Surabaya Gubeng 09.00; rush-hour vs 02.30 counts; finite, continuous positions (no jumps > 200 m/s); station boards and full-day timetables; line grids; three planner journeys (Bogor → Bandara with a transfer, Jakarta → Surabaya, MRT → LRT); trapezoid profile covers the distance in the scheduled time; plausible speeds; next trains passing a crossing; JPL cleaning, statuses, KM/Daop and photo licences; station photos, Daop and km; train trails along the track across sections; typical formation per line.
-- **61 smoke checks** (`tests/smoke.mjs`, desktop 1400×900 and mobile 390×844): animation loop, home counts, station board and full timetable with date picker, train ETAs, line grid, source labels, search, planner, journey detail and simulation, train card with image and speed, JPL toggle / persistence / search / filters / photos / flyover card, station photo in panel and popup, night view, mobile sheet and cards on screen, and zero page errors.
+- **21 unit tests** (`tests/sched.test.js`): Jakarta clock and day types; data has the expected systems and real timetables; KRL train 1000 matches its planned board times; Argo Semeru 5 leaves Surabaya Gubeng 09.00; rush-hour vs 02.30 counts; finite, continuous positions (no jumps > 200 m/s); station boards and full-day timetables; line grids; three planner journeys (Bogor → Bandara with a transfer, Jakarta → Surabaya, MRT → LRT); trapezoid profile covers the distance in the scheduled time; plausible speeds; next trains passing a crossing; JPL cleaning, statuses, KM/Daop and photo licences; station photos, Daop and km; train trails along the track across sections; typical formation per line; KA barang (114 GAPEKA paths, categories, never in the planner, board/crossing visibility toggle and category filter, OSM places near end stations).
+- **73 smoke checks** (`tests/smoke.mjs`, desktop 1400×900 and mobile 390×844): animation loop, home counts, station board and full timetable with date picker, train ETAs, line grid, source labels, search, planner, journey detail and simulation, train card with image and speed, JPL toggle / persistence / search / filters / photos / flyover card, station photo in panel and popup, KA barang (bundle loads, running count, wagons at high zoom, card, search by number and name, board toggle, layers panel, OSM freight places), night view, mobile sheet and cards on screen, and zero page errors.
 - CI runs install, build and unit tests on every push to `main` and on pull requests.
 
 ## ⚡ Performance
 
 - Positions are recomputed every frame, but only trains inside the viewport (plus a margin) are drawn. The frame rate adapts: capped at 60 fps, dropping to 30 when a frame costs > 8 ms and 15 when > 14 ms; 24 fps below zoom 9.5 and 6 fps below zoom 7.5, where movement is sub-pixel. Nothing is drawn while the tab is hidden.
 - The list of active trips is refreshed once per second, not per frame.
-- Gzipped data sizes: `network.json` 167 KB, `trips.json` 124 KB, `kai.json` 149 KB (after first paint), `jpl.json` 161 KB (only when the layer or a crossing search is used), `stations_x.json` 32 KB (on first station open).
+- Gzipped data sizes: `network.json` 167 KB, `trips.json` 124 KB, `kai.json` 149 KB (after first paint), `freight.json` 21 KB (after `kai.json`), `terminals.json` 3 KB (only when that layer is on), `jpl.json` 161 KB (only when the layer or a crossing search is used), `stations_x.json` 32 KB (on first station open).
 - Fleet images are 640×360 WebP (460 KB for all 10). Station and crossing photos are 500 px Commons thumbnails, lazy-loaded.
 - Crossing "next trains" use a per-day index of trips per section plus bisection on the motion profile.
 - `vercel.json` caches `/data/*` for an hour with `stale-while-revalidate`.
@@ -404,6 +420,7 @@ node tests/smoke.mjs https://sepur-live.vercel.app /tmp   # smoke test against a
 - **Whoosh** and **MRT weekends/holidays** are frequency estimates.
 - GAPEKA has **no day-of-operation**; all intercity trains are assumed to run daily (*Fakultatif* flagged).
 - **No platform numbers** (not in any open source).
+- **Freight:** GAPEKA gives the category only (Cargo, Tanker, Parcel, Service, Trans), not the commodity, shipper or operator, and no days of operation; real freight often does not run every day. Wagon counts, colours and photos are typical.
 - Rolling-stock photos show the typical type, not the unit on that trip.
 - Java only; Sumatra and other islands are not covered.
 - **Level crossings:** official JPL numbers, gatekeeper (KAI / Dishub / swadaya), EWS status and survey details (rail, sleepers) are not open data; 2,770 crossings have no protection tags in OSM; only 26 crossings have a photo; KM and Daop are estimates. Government portals listing JPLs (DJKA e-Perlintasan, SIMARLIN Lumajang, SIMINFRA Grobogan) state no reuse licence and are not imported.
@@ -434,7 +451,8 @@ Full credits are in [ATTRIBUTION.md](ATTRIBUTION.md).
 |---|---|---|
 | Track, stations, level crossings | © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, [Geofabrik](https://download.geofabrik.de/asia/indonesia.html) Java extract | ODbL 1.0 (`network.json`, `jpl.json` are derived databases) |
 | KRL timetables | [Open-KRL](https://github.com/open-krl/pipeline) | CC BY 4.0 |
-| Intercity, regional, KA Bandara, Feeder | GAPEKA 2026 (KAI), via [Gapeka-parser](https://github.com/transportforbandung/Gapeka-parser) | timetable facts by KAI; parser used as a tool |
+| Intercity, regional, KA Bandara, Feeder, KA barang | GAPEKA 2026 (KAI), via [Gapeka-parser](https://github.com/transportforbandung/Gapeka-parser) | timetable facts by KAI; parser used as a tool |
+| Freight places (yards, fuel and container terminals) | © OpenStreetMap contributors | ODbL 1.0 (`terminals.json` is a derived database) |
 | MRT, LRT, Skytrain | [ShioriLabs commute](https://github.com/ShioriLabs/commute) | ODbL 1.0 |
 | Station photo links | [Wikidata](https://www.wikidata.org) (P18) | CC0 |
 | Station Daop and km | [id.wikipedia.org](https://id.wikipedia.org) station infoboxes | CC BY-SA 4.0 |
@@ -474,6 +492,7 @@ Code: [MIT](LICENSE) © 2026 Hendra Bangun Dwi R. Data and photos keep the licen
 - **Perencana perjalanan (tab Rute).** Pilih asal, tujuan, tanggal, dan jam. Rute dicari dari semua jadwal sekaligus dengan Connection Scan Algorithm, dengan waktu pindah minimal 3 menit dan jalan kaki antarstasiun yang terhubung. Hasilnya sampai 5 pilihan dan bisa disimulasikan di peta.
 - **Jadwal lengkap.** Papan keberangkatan dan jadwal sehari per stasiun (dengan pilihan tanggal; hari kerja, akhir pekan, dan libur nasional otomatis), tabel jadwal per jalur, dan daftar berhenti per kereta. Nomor peron tidak ditampilkan karena tidak ada di sumber data terbuka mana pun.
 - **Perlintasan sebidang (JPL).** Lapisan yang bisa dimunculkan atau disembunyikan, berisi **3.396 perlintasan sebidang** dan **1.304 flyover/underpass** di Jawa. Datanya dibersihkan dari OSM: titik di rel mati, rel industri, titik tanpa jalan, dan titik di jembatan dibuang, dan titik ganda per jalur digabung. Status mengikuti istilah DJKA/168railway bila tag OSM mendukung (dijaga, berpalang, tidak dijaga, liar, ditutup, pejalan kaki, belum terdata, flyover, underpass). Ada **filter per status dan per Daop**. Kartu perlintasan berisi foto (atau "Belum ada foto" dengan tautan Mapillary/Street View), jalan, pengaman, Daop, **perkiraan KM**, jumlah jalur rel, stasiun di kedua sisi, perkiraan kereta yang lewat berikutnya, tingkat kelengkapan data, dan sumbernya. Nomor JPL dan penjaga **tidak pernah dikarang**.
+- **KA barang.** Semua **114 perjalanan KA barang di GAPEKA 2026** (27 layanan) tampil dengan nomor, nama, asal–tujuan, dan jam asli: Cargo 34, Tanker 48, Parcel 6, Service 24, Trans 2. Kategori diambil dari nama perjalanan di GAPEKA; **jenis muatan dan pemilik barang tidak tercantum**, jadi tidak dikarang. Di peta digambar sesuai jenis (ilustrasi): gerbong datar peti kemas, gerbong ketel bergaya Pertamina, kereta bagasi, gerbong tertutup/hopper. Kartu menampilkan kategori, kecepatan perkiraan (dibatasi batas kecepatan di GAPEKA), foto Commons, dan tempat di dekat ujung rute menurut OSM (misalnya Depo BBM Pertamina Larangan). Bisa disembunyikan dan disaring per kategori; tampil di papan stasiun, jadwal, pencarian, dan daftar kereta yang lewat JPL dengan tanda *KA barang*. **Perencana rute tidak memakai KA barang.** Ada juga lapisan terminal barang, depo BBM, dan emplasemen dari OSM.
 - **Foto stasiun.** **448 dari 483 stasiun (92,8%)** punya foto dari Wikimedia Commons (lewat Wikidata) dengan nama pembuat dan lisensi, di panel stasiun dan di popup saat stasiun diketuk, plus Daop dan km dari infobox Wikipedia.
 - **Responsif.** Di HP panelnya berupa lembar bawah yang bisa ditarik, kartu selalu muat di layar, tombol besar untuk layar sentuh. Di desktop panelnya di samping. Bisa dipasang sebagai PWA.
 
@@ -485,6 +504,7 @@ Code: [MIT](LICENSE) © 2026 Hendra Bangun Dwi R. Data and photos keep the licen
 | KA antarkota, regional, KA Bandara (107 layanan, 580 perjalanan/hari) | GAPEKA 2026 | Jadwal resmi; hari operasi dianggap setiap hari |
 | MRT Jakarta | ShioriLabs (ODbL) | Hari kerja resmi; akhir pekan perkiraan |
 | LRT Jakarta, LRT Jabodebek, Skytrain | ShioriLabs (ODbL) | Jadwal resmi; tiba di stasiun akhir ditaksir |
+| KA barang (27 layanan, 114 perjalanan/hari) | GAPEKA 2026 | Nomor, nama, rute, dan jam resmi; muatan tidak tercantum; bentuk gerbong ilustrasi |
 | Whoosh | Pola frekuensi | Perkiraan |
 | Rel, stasiun, perlintasan | OpenStreetMap (ODbL) | 488 dari 494 petak mengikuti rel asli |
 
@@ -499,14 +519,14 @@ git clone https://github.com/podsni/sepur-live.git
 cd sepur-live
 npm ci
 npm run dev            # http://localhost:5173
-sh ./test.sh           # build + 20 uji unit + 61 uji browser
+sh ./test.sh           # build + 21 uji unit + 73 uji browser
 ```
 
 Langkah membangun ulang data ada di bagian [Rebuild the data](#rebuild-the-data-optional).
 
 ### Keterbatasan
 
-Tanpa GPS dan data real-time; Whoosh dan MRT akhir pekan masih perkiraan; hari operasi KA antarkota tidak tercantum di GAPEKA; tanpa nomor peron; hanya Pulau Jawa. Untuk JPL: nomor resmi, penjaga (KAI/Dishub/swadaya), status EWS, dan data survei tidak tersedia sebagai data terbuka; 2.770 perlintasan belum punya keterangan pengaman di OSM; baru 26 perlintasan yang punya foto. Portal pemerintah (DJKA e-Perlintasan, SIMARLIN Lumajang, SIMINFRA Grobogan) tidak mencantumkan lisensi pemakaian ulang, dan data 168railway tidak dipakai.
+Tanpa GPS dan data real-time; Whoosh dan MRT akhir pekan masih perkiraan; hari operasi KA antarkota tidak tercantum di GAPEKA; KA barang hanya punya kategori, tanpa jenis muatan, pemilik barang, dan hari operasi; tanpa nomor peron; hanya Pulau Jawa. Untuk JPL: nomor resmi, penjaga (KAI/Dishub/swadaya), status EWS, dan data survei tidak tersedia sebagai data terbuka; 2.770 perlintasan belum punya keterangan pengaman di OSM; baru 26 perlintasan yang punya foto. Portal pemerintah (DJKA e-Perlintasan, SIMARLIN Lumajang, SIMINFRA Grobogan) tidak mencantumkan lisensi pemakaian ulang, dan data 168railway tidak dipakai.
 
 ### Lisensi dan kredit
 

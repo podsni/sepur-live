@@ -14,7 +14,15 @@ FLEET = {
   'argo':    ('File:Argo Semeru SSNG.jpg', 'Lokomotif CC 206 + kereta Stainless Steel New Generation', 'Rangkaian kereta Argo stainless steel generasi baru'),
   'ka':      ('File:Papandayan Train of Locomotive CC 206 16 10.jpg', 'Lokomotif CC 206 + rangkaian kereta', 'KA antarkota ditarik lokomotif diesel CC 206'),
   'lokal':   ('File:CC 201 78 04, Semarang Tawang Station, 2025 (01).jpg', 'Lokomotif CC 201 + rangkaian kereta', 'KA lokal ditarik lokomotif diesel CC 201'),
+  # KA barang (freight): one photo per GAPEKA category, illustration of the typical consist
+  'fcargo':   ('File:CC 206 13 25 + container train, Semarang Tawang Station, 2025 (01).jpg', 'Lokomotif CC 206 + gerbong datar peti kemas', 'KA barang peti kemas ditarik CC 206 di Stasiun Semarang Tawang'),
+  'ftanker':  ('File:C6 24 - KA 2627 Betmakola Ketel.jpg', 'Lokomotif + gerbong ketel', 'KA 2627 Betmakola, rangkaian gerbong ketel'),
+  'fparcel':  ('File:KA Parcel Selatan.jpg', 'Lokomotif + kereta bagasi', 'KA Parcel Selatan berangkat dari Stasiun Gombong'),
+  'fservice': ('File:Rangkaian gerbong kereta api barang angkutan batu balas melintas Stasiun Kampung Bandan..jpg', 'Lokomotif + gerbong barang terbuka/hopper', 'Rangkaian gerbong barang (angkutan batu balas) di Stasiun Kampung Bandan, ilustrasi umum'),
 }
+import sys
+ONLY = set(sys.argv[1:])  # e.g. fcargo ftanker: fetch only these, keep the other entries
+if ONLY: FLEET = {k: v for k, v in FLEET.items() if k in ONLY}
 titles = '|'.join(v[0] for v in FLEET.values())
 q = urllib.parse.urlencode({'action': 'query', 'format': 'json', 'titles': titles, 'prop': 'imageinfo', 'iiprop': 'url|extmetadata', 'iiurlwidth': 960,
                             'iiextmetadatafilter': 'LicenseShortName|LicenseUrl|Artist|Credit'})
@@ -35,6 +43,15 @@ for key, (title, model, caption) in FLEET.items():
            'licenseUrl': m.get('LicenseUrl', {}).get('value', ''), 'source': ii['descriptionurl'], 'title': p['title'][5:]}
     out[key] = rec
     md.append(f"- **{model}** (`{key}.webp`): [{rec['title']}]({rec['source']}), oleh {rec['author']}, lisensi {lic}" + (f" ({rec['licenseUrl']})" if rec['licenseUrl'] else '') + '.')
+if ONLY:
+    old = json.load(open('public/data/fleet.json')); old.update(out); out = old
+    md = md[:4] + [f"- **{r['model']}** (`{k}.webp`): [{r['title']}]({r['source']}), oleh {r['author']}, lisensi {r['license']}" + (f" ({r['licenseUrl']})" if r['licenseUrl'] else '') + '.' for k, r in out.items()]
 json.dump(out, open('public/data/fleet.json', 'w'), ensure_ascii=False, indent=1)
-open('ATTRIBUTION.md', 'w').write('\n'.join(md) + '\n')
+# keep the other sections of ATTRIBUTION.md (map data, crossings, ...)
+rest = ''
+try:
+    cur = open('ATTRIBUTION.md').read(); i = cur.find('\n# ', 1)
+    if i >= 0: rest = '\n' + cur[i + 1:]
+except FileNotFoundError: pass
+open('ATTRIBUTION.md', 'w').write('\n'.join(md) + '\n' + rest)
 print(json.dumps({k: (v['author'], v['license']) for k, v in out.items()}, ensure_ascii=False, indent=0))

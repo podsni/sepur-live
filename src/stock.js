@@ -17,11 +17,23 @@ const C = {
   coach: { b: '#F4F5F7', s1: '#24398F', s2: '#F7941D' },
   coachP: { b: '#C9CDD3', s1: '#24398F', s2: '#F7941D' },
   lokal: { b: '#F4F5F7', s1: '#F7941D', s2: '#24398F' },
+  // freight wagons, seen from above: tank barrel highlight, container roofs, covered / hopper roofs
+  ketel: { b: '#D6DADF', s1: '#F3F4F6', s2: '#D7192D' },
+  ketelB: { b: '#D6DADF', s1: '#F3F4F6', s2: '#0067B1' },
+  ctrA: { b: '#1F5FA8', s1: '#1A528F', s2: '#123B66' },
+  ctrB: { b: '#D9631E', s1: '#BF5519', s2: '#8C3D10' },
+  ctrC: { b: '#2E7D4F', s1: '#266B43', s2: '#1A4A2E' },
+  ctrD: { b: '#E4E6E9', s1: '#C9CDD2', s2: '#9AA0A7' },
+  flat: { b: '#3B3E44', s1: '#55595F', s2: '#2A2C30' },
+  bagasi: { b: '#E9EBEE', s1: '#24398F', s2: '#F7941D' },
+  tertutup: { b: '#7A6A58', s1: '#6A5B4B', s2: '#55493C' },
+  hopper: { b: '#8C9198', s1: '#6F747B', s2: '#A9AEB4' },
 };
 
 const emu = (n, len, liv, endLen = len) => Array.from({ length: n }, (_, i) => ({ len: i === 0 || i === n - 1 ? endLen : len, liv, cab: i === 0 ? 'f' : i === n - 1 ? 'r' : '' }));
 const hauled = (loco, locoLen, coaches) => [{ len: locoLen, liv: loco, cab: 'f', loco: true }, ...coaches.map((liv) => ({ len: 20.9, liv }))];
 
+const wagons = (loco, locoLen, livs, n, len) => [{ len: locoLen, liv: loco, cab: 'f', loco: true }, ...Array.from({ length: n }, (_, i) => ({ len, liv: livs[i % livs.length] }))];
 /** Typical formations. `n` text is shown in the legend and the train card. */
 export const STOCK = {
   krl12: { name: 'KRL Commuter Line', model: 'JR 205 / CLI-125', note: '12 kereta', cars: emu(12, 20, 'krl') },
@@ -36,11 +48,18 @@ export const STOCK = {
   argo: { name: 'KA Argo (eksekutif)', model: 'CC 206 + stainless steel', note: 'lok + 9 kereta', cars: hauled('cc206', 15.8, ['argoP', 'argo', 'argo', 'argo', 'argo', 'argo', 'argo', 'argo', 'argo']) },
   ka: { name: 'KA antarkota', model: 'CC 206 + kereta eksekutif/ekonomi', note: 'lok + 9 kereta', cars: hauled('cc206', 15.8, ['coachP', 'coach', 'coach', 'coach', 'coach', 'coach', 'coach', 'coach', 'coach']) },
   lokal: { name: 'KA lokal / commuter daerah', model: 'CC 201 + kereta ekonomi', note: 'lok + 5 kereta', cars: hauled('cc201', 14.1, ['coachP', 'lokal', 'lokal', 'lokal', 'lokal']) },
+  // KA barang (GAPEKA "Cargo", "Tanker", "Parcel", "Service", "Trans"): typical Java freight consists, illustration only
+  fcargo: { name: 'KA barang peti kemas (Cargo)', model: 'CC 206 + gerbong datar peti kemas', note: 'lok + ±20 gerbong', freight: true, cars: wagons('cc206', 15.8, ['ctrA', 'ctrB', 'ctrD', 'ctrC', 'flat'], 20, 14) },
+  ftanker: { name: 'KA ketel (Tanker)', model: 'CC 201 + gerbong ketel', note: 'lok + ±20 ketel', freight: true, cars: wagons('cc201', 14.1, ['ketel', 'ketel', 'ketelB'], 20, 12) },
+  fparcel: { name: 'KA Parcel', model: 'CC 206 + kereta bagasi', note: 'lok + ±8 kereta bagasi', freight: true, cars: wagons('cc206', 15.8, ['bagasi'], 8, 20.9) },
+  fservice: { name: 'KA barang lain (Service)', model: 'CC 201 + gerbong tertutup / hopper', note: 'lok + ±16 gerbong', freight: true, cars: wagons('cc201', 14.1, ['tertutup', 'tertutup', 'hopper'], 16, 13) },
+  ftrans: { name: 'KA barang lain (Trans)', model: 'CC 201 + gerbong barang', note: 'lok + ±16 gerbong', freight: true, cars: wagons('cc201', 14.1, ['hopper', 'tertutup'], 16, 13) },
 };
 for (const st of Object.values(STOCK)) st.len = st.cars.reduce((a, c) => a + c.len, 0);
 
 /** Which typical formation a line uses. Kept in step with the fleet photo shown on the train card. */
 export function stockKey(l) {
+  if (l.sys === 'barang') return 'f' + (l.cat || 'service');
   if (l.id === 'krl-lm') return 'lokal'; // Rangkasbitung–Merak is not electrified: diesel loco + coaches
   if (l.sys === 'krl' || l.id === 'g-commuter-line-yogyakarta') return l.id === 'krl-tp' || l.id === 'g-commuter-line-yogyakarta' ? 'krl8' : l.id === 'krl-t' ? 'krl10' : 'krl12';
   if (l.sys === 'mrt' || l.sys === 'lrtj' || l.sys === 'jbdb') return l.sys;
@@ -51,9 +70,10 @@ export function stockKey(l) {
   return 'lokal';
 }
 export const LEGEND = ['krl12', 'mrt', 'lrtj', 'jbdb', 'whoosh', 'ea203', 'sky', 'argo', 'ka', 'lokal'];
+export const LEGEND_FREIGHT = ['fcargo', 'ftanker', 'fparcel', 'fservice'];
 
 // ---------- compact sprite (low zoom), drawn pointing up (north) so icon-rotate = bearing ----------
-const SPRITE_CARS = { krl12: 4, krl10: 4, krl8: 4, mrt: 4, lrtj: 2, jbdb: 3, whoosh: 4, ea203: 3, sky: 2, argo: 4, ka: 4, lokal: 3 };
+const SPRITE_CARS = { krl12: 4, krl10: 4, krl8: 4, mrt: 4, lrtj: 2, jbdb: 3, whoosh: 4, ea203: 3, sky: 2, argo: 4, ka: 4, lokal: 3, fcargo: 5, ftanker: 5, fparcel: 4, fservice: 5, ftrans: 5 };
 function rr(g, x, y, w, h, r) { g.beginPath(); g.roundRect ? g.roundRect(x, y, w, h, r) : g.rect(x, y, w, h); }
 /** Draw the sprite into a canvas at scale `px` (device pixels per CSS px). Returns { canvas, w, h } in CSS px. */
 export function spriteCanvas(key, px = 2) {
@@ -77,8 +97,9 @@ export function spriteCanvas(key, px = 2) {
       g.fillStyle = v.b; g.beginPath(); g.moveTo(2 + W / 2, top); g.bezierCurveTo(2 + W, top + nose * 0.55, 2 + W, top + nose, 2 + W, top + len);
       g.lineTo(2, top + len); g.bezierCurveTo(2, top + nose, 2, top + nose * 0.55, 2 + W / 2, top); g.fill();
     } else {
-      rr(g, 1.2, top - 0.8, W + 1.6, len + 1.6, car.cab === 'f' || car.cab === 'r' ? 3.2 : 1.4); g.fill();
-      g.fillStyle = v.b; rr(g, 2, top, W, len, car.cab ? 2.6 : 1); g.fill();
+      const tank = /^ketel/.test(car.liv);
+      rr(g, 1.2, top - 0.8, W + 1.6, len + 1.6, car.cab === 'f' || car.cab === 'r' ? 3.2 : tank ? 4.5 : 1.4); g.fill();
+      g.fillStyle = v.b; rr(g, 2, top, W, len, car.cab ? 2.6 : tank ? 4 : 1); g.fill();
     }
     // livery bands (centre band + thin accent)
     const y0 = top + (first && nose ? nose * 0.7 : first && car.cab ? 2.2 : 0.6), y1 = top + len - (last && car.cab === 'r' ? 2.2 : 0.6);

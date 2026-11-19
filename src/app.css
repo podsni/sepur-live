@@ -378,3 +378,12 @@ svg.i{width:20px;height:20px;flex:none;fill:currentColor;display:block}
 .tleg img{grid-row:span 2;justify-self:start;max-width:64px;height:12px;width:auto}
 .tleg small{color:var(--text2);font-size:11px}
 .fleet figcaption .form{display:block;font-weight:600}
+/* KA barang (freight) */
+.badge.fr{background:#FBE7DA;color:#9A3D0C}
+em.frt{font-style:normal;font-weight:700;color:#9A3D0C}
+.tbtn.f{border-top-style:dashed;background:repeating-linear-gradient(135deg,var(--panel) 0 6px,#F6EDE6 6px 12px)}
+.fcats{display:grid;grid-template-columns:1fr;gap:0;margin:0 0 6px 18px}
+.layers .fcats label.fc{font-size:12.5px;min-height:30px}.fcats small{color:var(--text2);font-size:11px;margin-left:2px;white-space:nowrap}
+.frinfo .fact.wide b{font-size:13px;line-height:1.4;font-weight:600}
+.frinfo{background:#FFF6F0}.frinfo>b{color:#9A3D0C}
+.tterm .kv{margin:4px 0}

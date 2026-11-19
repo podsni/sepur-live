@@ -179,6 +179,57 @@ check((await p.$$('#layers .tleg img')).length >= 10 && /KCIC400AF/.test(await p
 await p.click('#b-layers');
 check(p.errors.length === 0, 'no page errors on desktop ' + p.errors.join('; '));
 
+// KA barang (GAPEKA freight): map, boards, search, card; never in the planner
+{
+  const q = await page(1400, 900);
+  await q.goto(base + '/#t=1000&d=2026-11-19'); await ready(q); await kai(q);
+  await q.waitForFunction(() => document.querySelector('#app').dataset.freight === 'ok', null, { timeout: 40000 }).catch(() => {});
+  await q.waitForTimeout(1500);
+  check(await q.evaluate(() => document.querySelector('#app').dataset.freight === 'ok'), 'freight bundle loads after intercity');
+  check(parseInt(await q.textContent('[data-filter="barang"] b')) > 0, 'freight trains running at 10.00: ' + (await q.textContent('[data-filter="barang"] b')));
+  check(await q.evaluate(() => { const { E } = window.__sepurDebug; return !E.connections('2026-11-19').some((c) => c.trip.freight); }), 'planner never routes on freight');
+  // a running freight train, close up with its wagons, then its card
+  const fz = await q.evaluate(async () => {
+    const { E, clock } = window.__sepurDebug; const c = clock();
+    const r = E.running(c).find((x) => x.trip.freight && x.s.kind === 'run' && E.lines.get(x.trip.line).cat === 'tanker') || E.running(c).find((x) => x.trip.freight && x.s.kind === 'run');
+    if (!r) return null;
+    window.__map.jumpTo({ center: r.s.p, zoom: 15.6 }); await new Promise((k) => setTimeout(k, 2500));
+    const cars = window.__map.queryRenderedFeatures({ layers: ['car-body'] }).filter((f) => f.properties.id === r.trip.id).length;
+    return { id: r.trip.id, date: r.trip.date, cars };
+  });
+  check(!!fz && fz.cars > 10, 'freight train drawn wagon by wagon at high zoom ' + JSON.stringify(fz));
+  await q.screenshot({ path: `${out}/desk-freight-close.png` });
+  if (fz) {
+    const html = await q.evaluate((f) => { window.__sepurDebug.showCard(f.id, f.date); return document.querySelector('#tcard')?.textContent || ''; }, fz);
+    check(/KA barang/.test(html) && /muatan tidak tercantum/.test(html), 'freight card labels KA barang and unknown cargo');
+    await q.screenshot({ path: `${out}/desk-freight-card.png` });
+  }
+  await q.fill('#q', '2627'); await q.waitForTimeout(800);
+  check((await q.$$('[data-open^="train:KA 2627:"]')).length > 0, 'search finds freight train number 2627');
+  await q.fill('#q', 'Gamao'); await q.waitForTimeout(800);
+  check((await q.$$('[data-open="line:f-gamao-tanker"]')).length > 0, 'search finds freight service name Gamao');
+  await q.click('[data-open^="line:f-gamao-tanker"]'); await q.waitForTimeout(1200);
+  check((await q.textContent('#view')).includes('muatan dan pemilik barang tidak tercantum'), 'freight line cites GAPEKA and says the cargo is not listed');
+  await q.goto(base + '/#station=TPK&t=1000&d=2026-11-19'); await q.reload(); await ready(q); await kai(q);
+  await q.waitForFunction(() => document.querySelector('#app').dataset.freight === 'ok', null, { timeout: 40000 }).catch(() => {});
+  await q.waitForTimeout(800);
+  const frOn = await q.evaluate(() => window.__sepurDebug.E.departures('TPK', window.__sepurDebug.clock(), 200, 86400).some((d) => d.trip.freight));
+  await q.evaluate(() => { const { S } = window.__sepurDebug; S.layers.barang = false; });
+  const frOff = await q.evaluate(() => window.__sepurDebug.E.departures('TPK', window.__sepurDebug.clock(), 200, 86400).some((d) => d.trip.freight));
+  check(frOn && !frOff, 'Tanjung Priuk board lists freight only while KA barang is switched on');
+  await q.evaluate(() => { window.__sepurDebug.S.layers.barang = true; });
+  // layers panel: KA barang toggle, category filter, freight legend, OSM freight places layer
+  await q.click('#b-layers'); await q.waitForTimeout(500);
+  check((await q.$$('[data-fcat]')).length === 5 && (await q.textContent('#layers')).includes('KA ketel (Tanker)'), 'layers panel has KA barang categories and freight legend');
+  await q.check('[data-layer="terminals"]'); await q.waitForTimeout(400);
+  await q.evaluate(() => window.__map.jumpTo({ center: [109.1418, -6.8745], zoom: 13.5 }));
+  await q.waitForFunction(() => window.__map.getLayer('term-c') && window.__map.queryRenderedFeatures({ layers: ['term-c'] }).length > 0, null, { timeout: 20000 }).catch(() => {});
+  check(await q.evaluate(() => !!window.__map.getLayer('term-c') && window.__map.queryRenderedFeatures({ layers: ['term-c'] }).length > 0), 'OSM freight places layer shows terminals/depots');
+  await q.screenshot({ path: `${out}/desk-freight-terminals.png` });
+  check(q.errors.length === 0, 'no page errors with freight ' + q.errors.join('; '));
+  await q.close();
+}
+
 // night: urban trains asleep, overnight intercity runs
 const n = await page(1400, 900);
 await n.goto(base + '/#t=0230&d=2026-11-19'); await ready(n); await kai(n); await n.waitForTimeout(1000);

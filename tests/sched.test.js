@@ -199,3 +199,42 @@ test('rolling stock: typical formations per line, car features with cab ends', a
   assert.equal(stockKey(L('g-argo-semeru')), 'argo'); assert.ok(STOCK.argo.cars[0].loco);
   assert.equal(stockKey(L('g-taksaka')), 'ka');
 });
+
+test('KA barang: real GAPEKA freight paths, never in the journey planner', async () => {
+  const fr = rd('freight.json');
+  const F = new Engine(net, trips, kai); F.addFreight(fr);
+  assert.equal(fr.daily.length, 114);
+  assert.deepEqual(fr.cats, { cargo: 34, tanker: 48, parcel: 6, service: 24, trans: 2 });
+  for (const l of fr.lines) { assert.equal(l.sys, 'barang'); assert.ok(['cargo', 'tanker', 'parcel', 'service', 'trans'].includes(l.cat), l.id); }
+  // Betmakola Tanker KA 2627 (Benteng -> Malang Kota Lama) as printed in GAPEKA 2026
+  const d = F.day(D), t = d.byId.get('KA 2627');
+  assert.ok(t && t.freight && t.line === 'f-betmakola-tanker');
+  assert.equal(t.sids[0], 'SBE'); assert.equal(t.sids.at(-1), 'MLK');
+  // freight network.json is untouched: freight-only stations live in the bundle
+  for (const s of fr.stations) assert.ok(!net.stations.some((x) => x.id === s.id), s.id);
+  // planner: no connection uses a freight trip
+  assert.ok(!F.connections(D).some((c) => c.trip.freight));
+  // boards hide freight unless switched on, then show it
+  const sid = 'TPK', c = at(D, 0, 0);
+  const anyFr = (on) => { F.freightOn = on; return F.stationDay(sid, D).rows.some((r) => r.trip.freight); };
+  assert.equal(anyFr(null), false);
+  assert.equal(anyFr(() => true), true);
+  assert.equal(anyFr((l) => l.cat === 'tanker'), false); // commodity filter: no tanker trains at Tanjung Priuk
+  F.freightOn = () => true;
+  assert.ok(F.departures(sid, { ...c, sec: 0 }, 400, 86400).some((x) => x.trip.freight));
+  // freight is drawn with a freight formation
+  const { stockKey, STOCK } = await import('../src/stock.js');
+  assert.equal(stockKey(F.lines.get('f-betmakola-tanker')), 'ftanker');
+  assert.equal(stockKey(F.lines.get('f-kenlimas-cargo')), 'fcargo');
+  assert.ok(STOCK.ftanker.freight && STOCK.ftanker.cars.length > 10);
+  // OSM freight places near the end stations (hint only): Gamao tanker ends next to the Pertamina depot at Larangan
+  assert.ok(F.lines.get('f-gamao-tanker').near.some((n) => n[0] === 'fuel' && /Pertamina/.test(n[1]) && n[3] === 'Larangan'));
+  const term = rd('terminals.json'); assert.ok(term.x.length > 50 && term.x.every((r) => ['fuel', 'cargo', 'yard'].includes(r[2])));
+  // level crossings: freight shows in the next trains passing (when switched on)
+  const J = rd('jpl.json'), c10 = at(D, 10, 0);
+  const r = J.x.find((x) => x[8] === 'JRK' && x[9] === 'SMC');
+  assert.ok(r && F.passes(r[8], r[9], r[10], c10, 3 * 3600, 6).some((p) => p.trip.freight));
+  F.freightOn = null; assert.ok(!F.passes(r[8], r[9], r[10], c10, 3 * 3600, 6).some((p) => p.trip.freight)); F.freightOn = () => true;
+  // speeds stay within the GAPEKA speed limit of the train
+  const sp = F.speedProfile(t); assert.ok(sp.avg * 3.6 > 15 && sp.avg * 3.6 < 70, String(sp.avg * 3.6));
+});
