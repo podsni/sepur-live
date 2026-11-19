@@ -144,7 +144,7 @@ def make_seg(m, a, b):
     segs[k] = [R5(p) for p in rdp(coords)]
 
 def add_station(sid, name, lng, lat, sys, line):
-    s = stations.setdefault(sid, {'id': sid, 'name': name, 'lat': round(lat, 6), 'lng': round(lng, 6), 'sys': [], 'lines': []})
+    s = stations.setdefault(sid, {'id': sid, 'name': ST_FIX.get(name, name), 'lat': round(lat, 6), 'lng': round(lng, 6), 'sys': [], 'lines': []})
     if sys not in s['sys']: s['sys'].append(sys)
     if line and line not in s['lines']: s['lines'].append(line)
     return s
@@ -153,7 +153,12 @@ def title(s):
     s = s.strip().title()
     for a, b in [('Bni', 'BNI'), ('Ui', 'UI'), ('Kai', 'KAI'), ('Lrt', 'LRT'), ('Mrt', 'MRT'), ('Bsd', 'BSD'), ('Ii', 'II'), ('Hi', 'HI')]:
         s = re.sub(r'\b%s\b' % a, b, s)
-    return s
+    return ST_FIX.get(s, s)
+
+ST_FIX = {'Surabayagubeng': 'Surabaya Gubeng', 'Surabayakota': 'Surabaya Kota', 'Surabayapasarturi': 'Surabaya Pasarturi',
+          'Malangkotalama': 'Malang Kota Lama', 'Solokota': 'Solo Kota', 'Solobalapan': 'Solo Balapan', 'Solojebres': 'Solo Jebres',
+          'Semarangtawang': 'Semarang Tawang', 'Semarangponcol': 'Semarang Poncol', 'Pegadenbaru': 'Pegaden Baru',
+          'Yogyakartatugu': 'Yogyakarta', 'Bandungkiaracondong': 'Kiaracondong'}
 
 # ---------- KRL from Open-KRL boards ----------
 base = os.path.join(A.krl, 'data')
@@ -470,7 +475,12 @@ for lid, pats in g_patterns.items():
         if set(p) - covered and len(branches) < 4: branches.append(list(p)); covered |= set(p)
     fak = 'Fakultatif' in svc
     short = SHORT.get(svc) or ''.join(w[0] for w in re.sub(r'^Commuter Line ', 'CL ', svc).split()[:3]).upper()
-    l = {'id': lid, 'short': short, 'name': ('KA Bandara Soekarno-Hatta' if lid == 'ka-bst' else 'KA Feeder Whoosh Padalarang–Bandung' if lid == 'kcic-f' else svc),
+    # public train names: GAPEKA abbreviates a few services
+    NAME_FIX = {'Anggrek': 'Argo Bromo Anggrek', 'Senja Utama Yk': 'Senja Utama Yogyakarta', 'Fajar Utama Yk': 'Fajar Utama Yogyakarta',
+                'Bandara SMO': 'KA Bandara Adi Soemarmo', 'Commuter Line YIA': 'KA Bandara YIA'}
+    base_name = re.sub(r' Fakultatif$', '', svc)
+    disp = NAME_FIX.get(base_name, base_name) + (' (Fakultatif)' if fak else '')
+    l = {'id': lid, 'short': short, 'svc': svc, 'name': ('KA Bandara Soekarno-Hatta' if lid == 'ka-bst' else 'KA Feeder Whoosh Padalarang–Bandung' if lid == 'kcic-f' else disp),
          'color': COLORS.get(svc, PALETTE[sys]), 'text': '#FFFFFF', 'sys': sys, 'stations': main, 'branches': branches,
          'sched': 'timetable', 'src': 'gapeka', 'fak': fak, 'bundle': bundle, 'pairs': sorted(g_pairs[lid])}
     (lines if bundle == 'core' else kai_lines).append(l)

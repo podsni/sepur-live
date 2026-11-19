@@ -209,3 +209,46 @@ svg.i{width:20px;height:20px;flex:none;fill:currentColor;display:block}
 .seg button{font-size:13.5px}
 .simbar .now{display:grid;place-items:center}
 @media (max-width:759px){.simbar{left:8px;right:62px;transform:none;justify-content:space-between;padding-left:10px}.simbar .dt{display:none}.simbar .sp button{padding:0 5px}}
+/* v3: train card, hover tooltip, responsive polish */
+:root{color-scheme:light;--safe-l:env(safe-area-inset-left,0px);--safe-r:env(safe-area-inset-right,0px)}
+.tpop{z-index:36}
+.tpop .maplibregl-popup-content{padding:0;border-radius:18px;box-shadow:0 10px 32px rgba(16,24,40,.22);background:var(--card)}
+.tpop .maplibregl-popup-tip{border-top-color:var(--card);border-bottom-color:var(--card)}
+.tcard{width:300px;max-width:calc(100vw - 32px);padding:14px 12px 12px;display:grid;gap:8px;border-radius:18px;box-shadow:inset 0 4px 0 var(--c);font:400 13px/17px var(--font);color:var(--text)}
+.tcard .th{display:flex;gap:10px;align-items:center}.tcard .th .lb{min-width:34px;height:28px}
+.tcard .tt2{flex:1;min-width:0;display:grid}.tcard .tt2 b{font:700 16px/20px var(--font)}.tcard .tt2 span{font-size:12px;color:var(--text2)}
+.tcard .x{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--panel);flex:none;margin:-4px -4px 0 0}
+.tcard .x svg{width:16px;height:16px}
+.tcard .dest{display:grid;gap:0;background:var(--panel);border-radius:12px;padding:8px 10px}
+.tcard .dest span{font:600 10.5px/13px var(--font);text-transform:uppercase;letter-spacing:.05em;color:var(--text2)}
+.tcard .dest b{font:700 17px/22px var(--font)}.tcard .dest small{font-size:12px;color:var(--text2);font-variant-numeric:tabular-nums}
+.tcard .nowl{font-size:13px;line-height:18px}
+.tcard .kv{display:flex;justify-content:space-between;gap:10px;font-size:12.5px}.tcard .kv span{color:var(--text2)}.tcard .kv b{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}.tcard .kv em{font-style:normal;color:var(--ok)}
+.tcard .prog{height:5px}.tcard .prog i{background:var(--c)}
+.tcard .tags{display:flex;flex-wrap:wrap;gap:4px}.tcard .tags .badge{height:20px;font-size:10.5px}
+.tcard .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tcard .acts .btn{height:40px;box-shadow:0 0 0 .5px var(--border)}.tcard .acts .btn.primary{box-shadow:none}
+.hpop{pointer-events:none}.hpop .maplibregl-popup-content{padding:6px 10px;border-radius:10px;display:grid;font:400 12px/16px var(--font);box-shadow:var(--shadow)}
+.hpop .maplibregl-popup-content b{font-weight:700;font-size:13px}.hpop .maplibregl-popup-content span{color:var(--text2)}
+.facts.f2{grid-template-columns:repeat(2,1fr)}.facts .fact.wide{grid-column:1/-1}.facts .fact.wide b{font-size:18px;line-height:23px}
+.fact b{overflow-wrap:anywhere}
+/* sim bar: never over the map controls */
+@media (min-width:760px){.simbar{top:auto;bottom:calc(30px + var(--safe-b))}}
+@media (max-width:759px){.simbar{left:calc(8px + var(--safe-l));right:calc(8px + var(--safe-r))}.app[data-sim] .ctrls{top:calc(var(--safe-t) + 60px)}}
+/* map controls respect notches */
+.ctrls{right:calc(14px + var(--safe-r))}
+/* pane width by screen size */
+@media (min-width:760px) and (max-width:1023px){:root{--pane-w:360px}}
+@media (min-width:1440px){:root{--pane-w:420px}}
+@media (min-width:760px){.pane{padding-left:var(--safe-l)}.pane{width:calc(var(--pane-w) + var(--safe-l))}.map{left:calc(var(--pane-w) + var(--safe-l))}}
+/* short landscape screens (phones turned sideways) */
+@media (min-width:760px) and (max-height:520px){:root{--pane-w:340px}.phead{padding:8px var(--padx) 6px}.ptitle h1{font-size:17px}.ptabs{padding-bottom:8px}.seg button{height:32px}.pfoot{display:none}.ccard button{width:40px;height:40px}.ctrls{gap:6px;top:calc(var(--safe-t) + 8px)}.czoom{display:none}}
+/* touch: bigger targets */
+@media (pointer:coarse){.chip{height:40px;padding:0 14px}.btn.small{height:40px}.seg button{height:40px}.pill{height:38px}.stop{min-height:44px}.tt th button{min-height:36px;min-width:36px}.dfield{height:40px}.tbtn{min-height:48px}.qx{width:44px;height:44px;display:grid;place-items:center}}
+/* small phones */
+@media (max-width:380px){:root{--padx:12px}.now .v{font-size:23px}.facts{grid-template-columns:repeat(2,1fr)}.seg button{font-size:13px}.tcard{width:calc(100vw - 32px)}}
+/* mobile sheet: no horizontal scroll ever */
+.pbody{overflow-x:hidden}.views{min-width:0}.row .main,.leg .lh>div,.dhead .t{min-width:0}
+.dhead .t b{overflow-wrap:anywhere}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:759px){.tcard{width:calc(100vw - 96px);max-width:320px}}
+@media (min-width:760px) and (max-width:1023px){.simbar .dt{display:none}.simbar .sp button{padding:0 6px}.simbar{gap:6px}}

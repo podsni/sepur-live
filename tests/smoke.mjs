@@ -95,6 +95,23 @@ await p.goto(base + '/#tab=rute&from=GMR&to=SGU&pd=2026-11-19&pt=0600'); await p
 const ic = await p.textContent('#view');
 check((await p.$$('#plan-res .jrow')).length >= 1 && /Gambir/.test(ic), 'planner: Gambir → Surabaya Gubeng by intercity');
 await p.screenshot({ path: `${out}/desk-plan-ic.png` });
+// train card on click
+const clickTrain = async (pg, id, z, tap) => {
+  await pg.evaluate(([id, z]) => { const { E, clock } = window.__sepurDebug; const f = E.find(id, clock()); window.__map.jumpTo({ center: E.state(f.trip, f.t).p, zoom: z }); }, [id, z]);
+  await pg.waitForTimeout(1500);
+  const pt = await pg.evaluate((id) => { const { E, clock } = window.__sepurDebug; const f = E.find(id, clock()); const q = window.__map.project(E.state(f.trip, f.t).p); const r = window.__map.getCanvas().getBoundingClientRect(); return [q.x + r.left, q.y + r.top]; }, id);
+  if (tap) await pg.touchscreen.tap(pt[0], pt[1]); else await pg.mouse.click(pt[0], pt[1]);
+  await pg.waitForTimeout(1200);
+  return (await pg.$('#tcard')) ? pg.textContent('#tcard') : '';
+};
+await p.goto(base + '/#t=1000&d=2026-11-19'); await p.reload(); await ready(p); await kai(p); await p.waitForTimeout(1000);
+const ct = await clickTrain(p, 'KA 5', 12.5);
+check(/Argo Semeru/.test(ct) && /Tujuan/i.test(ct) && /Gambir/.test(ct) && /Berikutnya/.test(ct), 'click on train shows card with name and destination');
+await p.click('#tcard [data-open]'); await p.waitForTimeout(1000);
+check(!(await p.$('#tcard')) && /Argo Semeru/.test(await p.textContent('.dhead')) && /Tujuan/.test(await p.textContent('.facts')), 'card "Detail lengkap" opens train detail');
+await p.goto(base + '/#t=1000&d=2026-11-19'); await p.reload(); await ready(p); await kai(p);
+await p.fill('#q', 'taksaka'); await p.waitForTimeout(500);
+check(/Taksaka · KA \d+/.test(await p.textContent('#view')), 'search finds trains by name (taksaka)');
 check(p.errors.length === 0, 'no page errors on desktop ' + p.errors.join('; '));
 
 // night: urban trains asleep, overnight intercity runs
@@ -108,6 +125,13 @@ await m.goto(base + '/#t=0800&d=2026-11-19'); await ready(m); await m.waitForTim
 await m.screenshot({ path: `${out}/mob-home.png` });
 await m.goto(base + '/#train=1000&td=2026-11-19&t=0520&d=2026-11-19'); await m.reload(); await ready(m); await m.waitForTimeout(2500);
 check((await m.textContent('#view')).includes('KA 1000'), 'deep link #train=1000 opens on mobile');
+await m.goto(base + '/#t=0520&d=2026-11-19'); await m.reload(); await ready(m); await m.waitForTimeout(1000);
+const mc = await clickTrain(m, '1000', 13.5, true);
+check(/Commuter Line Bogor/.test(mc) && /Bogor/.test(mc), 'mobile tap on train shows card');
+const box = await m.$eval('#tcard', (e) => { const r = e.getBoundingClientRect(); return [r.left, r.right]; });
+check(box[0] >= 0 && box[1] <= 390, 'mobile card fits the screen ' + box.map(Math.round));
+check(await m.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile: no horizontal overflow');
+
 await m.screenshot({ path: `${out}/mob-train.png` });
 await m.goto(base + '/#tab=rute&from=THB&to=BKS&pd=2026-11-19&pt=0800&t=0800&d=2026-11-19'); await m.reload(); await ready(m); await m.waitForTimeout(2000);
 check((await m.$$('#plan-res .jrow')).length >= 1, 'mobile planner deep link');

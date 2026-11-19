@@ -55,6 +55,18 @@ function trainName(t) {
   if (isKA(l) || l.id === 'kcic-f' || l.id === 'ka-bst') return `${t.id} ${l.name}`;
   return /^\d/.test(t.id) ? `KA ${t.id}` : t.id;
 }
+const TYPE = { krl: 'KRL Commuter Line', mrt: 'MRT (kereta perkotaan)', lrtj: 'LRT (kereta ringan)', jbdb: 'LRT (kereta ringan)', bandara: 'Kereta bandara', whoosh: 'Kereta cepat', regional: 'KA lokal / commuter daerah', kai: 'KA antarkota' };
+/** Name, number, type and class of a trip for cards and labels (names come from the timetable data). */
+function trainInfo(t) {
+  if (t._info) return t._info;
+  const l = lineOf(t.line);
+  const name = l.id === 'kcic' ? 'Whoosh' : l.name;
+  const num = t.est ? 'Nomor buatan Sepur Live' : /^\d/.test(t.id) ? `KA ${t.id}` : t.id.replace(/^SKY /, 'Skytrain ').replace(/^JBDB /, 'LRT ').replace(/^LRTJ /, 'LRT ');
+  const type = l.id === 'kcic-f' ? 'KA Feeder kereta cepat' : TYPE[l.sys] || 'Kereta';
+  const cls = l.sys === 'kai' && /^Argo /.test(l.name) ? 'Eksekutif (kereta Argo)' : null;
+  const short = isKA(l) || l.id === 'ka-bst' || l.id === 'kcic-f' ? name : t.est ? name : `${name.replace(/^Commuter Line /, 'CL ')}`;
+  return (t._info = { name, num, type, cls, short, label: `${isKA(l) ? name : num} → ${t.head}` });
+}
 const sysName = (s) => s.sys.map((x) => SYS_LABEL[x]).filter((v, i, a) => a.indexOf(v) === i).join(' · ');
 function dayLabel(date) { const dow = new Date(date + 'T00:00:00Z').getUTCDay(); return dayType(date, NET.holidays) === 'weekend' ? (dow === 0 || dow === 6 ? 'Akhir pekan' : 'Hari libur') : 'Hari kerja'; }
 const DOW = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -134,6 +146,7 @@ function arrowImage() {
 }
 
 function initMap() {
+  popups();
   const h = S.view || { lng: 106.83, lat: -6.24, z: window.innerWidth < 760 ? 9.6 : 10.4 };
   map = new maplibregl.Map({ container: 'map', style: STYLE, center: [h.lng, h.lat], zoom: h.z, attributionControl: { compact: true }, maxPitch: 70, dragRotate: true, hash: false });
   map.on('error', (e) => console.warn('map', e?.error?.message || e));
@@ -162,6 +175,7 @@ function initMap() {
     map.addLayer({ id: 'tr-a', type: 'symbol', source: 'trains', filter: ['==', ['get', 'mv'], 1], layout: { 'icon-image': 'sepur-arrow', 'icon-rotate': ['get', 'b'], 'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-size': ['interpolate', ['linear'], ['zoom'], 6, 0.55, 8, 0.75, 11, 1.1, 15, 1.5] }, paint: { 'icon-color': '#1d1d22', 'icon-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1] } });
     map.addLayer({ id: 'tr-c', type: 'circle', source: 'trains', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3, 8, 5, 11, 8.5, 15, 12], 'circle-color': ['get', 'color'], 'circle-stroke-color': '#1d1d22', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 14, 2.5], 'circle-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1], 'circle-stroke-opacity': ['case', ['==', ['get', 'dim'], 1], 0.25, 1] } });
     map.addLayer({ id: 'tr-t', type: 'symbol', source: 'trains', minzoom: 10, layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 7.5, 15, 10], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': ['get', 'tc'], 'text-opacity': ['case', ['==', ['get', 'dim'], 1], 0.3, 1] } });
+    map.addLayer({ id: 'tr-n', type: 'symbol', source: 'trains', minzoom: 13, filter: ['==', ['get', 'dim'], 0], layout: { 'text-field': ['get', 'nm'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-anchor': 'left', 'text-offset': [1.5, 0], 'text-max-width': 14, 'text-optional': true, 'text-padding': 4 }, paint: { 'text-color': '#1d1d22', 'text-halo-color': '#fff', 'text-halo-width': 1.8 } });
     map.addSource('me', { type: 'geojson', data: FC() });
     map.addLayer({ id: 'me', type: 'circle', source: 'me', paint: { 'circle-radius': 7, 'circle-color': '#2F7BF6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } });
     const vsrc = Object.entries(map.getStyle().sources).find(([, s]) => s.type === 'vector')?.[0];
@@ -175,17 +189,27 @@ function initMap() {
       const f = map.queryRenderedFeatures(bb, { layers: ['tr-c', 'st-c', 'lines'] });
       const tr = f.find((x) => x.layer.id === 'tr-c'), st = f.find((x) => x.layer.id === 'st-c'), ln = f.find((x) => x.layer.id === 'lines');
       if (S.tab === 'rute' && S.pick && st) { setPlace(S.pick, st.properties.id); return; }
-      if (tr) open('train', tr.properties.id, { date: tr.properties.date });
+      if (tr) showCard(tr.properties.id, tr.properties.date);
       else if (st) open('station', st.properties.id);
       else if (ln) open('line', ln.properties.line);
+      else closeCard();
     });
+    if (matchMedia('(hover: hover)').matches) {
+      map.on('mousemove', 'tr-c', (e) => {
+        const f = e.features[0]; if (!f) return;
+        const trip = E.day(f.properties.date).byId.get(f.properties.id); if (!trip) return;
+        const i = trainInfo(trip);
+        hoverPop.setLngLat(f.geometry.coordinates).setHTML(`<b>${esc(i.name)}</b><span>${esc(i.num)} · ke ${esc(trip.head)}</span>`).addTo(map);
+      });
+      map.on('mouseleave', 'tr-c', () => hoverPop.remove());
+    }
     map.on('dragstart', () => { if (S.follow) { S.follow = false; toast('Berhenti mengikuti kereta'); render(true); } });
     map.on('moveend', () => writeHash());
     applyLayers();
     if (S.detail) focusDetail(false);
     else if (S.tab === 'rute' && S.planRes?.length) drawJourney(S.planRes[0], false);
     tick();
-    window.__map = map;
+    window.__map = map; window.__sepurDebug = { E, S, clock };
     requestAnimationFrame(frame);
     app.removeAttribute('data-loading');
   });
@@ -228,12 +252,13 @@ function frame(now) {
   window.__sepur = { frames, fpsCap, frameCost: +frameCost.toFixed(2), trains: lastRunning.length };
 }
 function drawTrains(run) {
-  const sel = S.detail?.type === 'train' ? S.detail.id : null;
+  const sel = S.card?.id || (S.detail?.type === 'train' ? S.detail.id : null);
   const selLine = S.detail?.type === 'line' ? S.detail.id : null;
   const jTrips = S.detail?.type === 'journey' && S.planRes ? new Set(S.planRes[S.detail.id]?.legs.filter((l) => !l.walk).map((l) => l.trip.id)) : null;
   const b = map.getBounds(), pad = 0.08;
   const w = b.getWest() - pad, e = b.getEast() + pad, s = b.getSouth() - pad, n = b.getNorth() + pad;
   const feats = [];
+  const z13 = map.getZoom() >= 12.8;
   let selRun = null;
   for (const r of run) {
     const l = lineOf(r.trip.line);
@@ -246,11 +271,12 @@ function drawTrains(run) {
     let br = r.s.bearing;
     if (mv) bearings.set(r.trip.key, br); else br = bearings.get(r.trip.key) ?? 0;
     const dim = (S.filter !== 'all' && chipOf(l.sys) !== S.filter) || (selLine && r.trip.line !== selLine) || (jTrips && !jTrips.has(r.trip.id)) ? 1 : 0;
-    feats.push({ type: 'Feature', properties: { id: r.trip.id, date: r.trip.date, color: l.color, tc: l.text || '#fff', label: l.short.length > 3 ? '' : l.short, sel: isSel ? 1 : 0, dim, mv, b: br }, geometry: { type: 'Point', coordinates: r.s.p } });
+    feats.push({ type: 'Feature', properties: { id: r.trip.id, date: r.trip.date, color: l.color, tc: l.text || '#fff', label: l.short.length > 3 ? '' : l.short, nm: z13 ? trainInfo(r.trip).label : '', sel: isSel ? 1 : 0, dim, mv, b: br }, geometry: { type: 'Point', coordinates: r.s.p } });
   }
   feats.sort((a, b) => a.properties.sel - b.properties.sel || b.properties.dim - a.properties.dim);
   map.getSource('trains').setData(FC(feats));
   if (S.follow && selRun && !map.isMoving()) map.jumpTo({ center: selRun.s.p });
+  if (S.card && selRun && selRun.trip.id === S.card.id) cardPop.setLngLat(selRun.s.p);
 }
 
 /* once a second: text that changes with time */
@@ -260,12 +286,60 @@ function tick() {
   const t = $('#tick-now'); if (t) t.textContent = fmt(c.sec);
   const st = $('#train-status'); if (st && S.detail?.type === 'train') st.innerHTML = trainStatus(S.detail.id, S.detail.date);
   if (S.detail?.type === 'train') updateEta();
+  if (S.card) { const el = $('#tcard'); if (el) el.outerHTML = cardHtml(S.card.id, S.card.date); }
   const sb = $('#simbar');
   if (S.at) {
-    sb.hidden = false; $('#sim-t').innerHTML = `${fmt(c.sec)} WIB<span class="dt"> · ${dateNice(c.date)}</span>`;
+    app.dataset.sim = '1'; sb.hidden = false; $('#sim-t').innerHTML = `${fmt(c.sec)} WIB<span class="dt"> · ${dateNice(c.date)}</span>`;
     sb.querySelectorAll('[data-speed]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.speed === (S.at.speed || 1))));
-  } else sb.hidden = true;
+  } else { sb.hidden = true; delete app.dataset.sim; }
 }
+
+/* ---------- train card (tap/click a train on the map) ---------- */
+let cardPop, hoverPop;
+function popups() {
+  cardPop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: 'none', offset: 18, className: 'tpop', focusAfterOpen: false });
+  cardPop.on('close', () => { if (S.card) { S.card = null; } });
+  hoverPop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'hpop' });
+}
+function prevStop(trip, s) {
+  const from = s.kind === 'dwell' ? s.at - 1 : s.from;
+  for (let k = from; k >= 0; k--) if (trip.flags[k] & 1) return k;
+  return null;
+}
+function cardHtml(id, date) {
+  const f = E.find(id, clock(), date); if (!f) return '<div id="tcard" class="tcard"><b>Kereta tidak ditemukan</b></div>';
+  const { trip, t } = f; const l = lineOf(trip.line), i = trainInfo(trip), s = E.state(trip, t);
+  const st = (k) => esc(stOf(trip.sids[k]).name);
+  let now = '', nxt = '';
+  if (!s || t < trip.start) now = t < trip.start ? `Belum berangkat · berangkat ${fmt(trip.start)} dari ${st(0)}` : `Sudah tiba di ${st(trip.sids.length - 1)} (${fmt(trip.end)})`;
+  else if (s.kind === 'dwell') {
+    now = s.next == null ? `Tiba di ${st(s.at)} · stasiun terakhir` : `Berhenti di <b>${st(s.at)}</b> · berangkat ${fmt(trip.dep[s.at])}`;
+    if (s.next != null) { const k = E.nextStopIdx(trip, s.at + 1); nxt = `<div class="kv"><span>Berikutnya</span><b>${st(k)} · ${fmt(trip.arr[k])} <em>(${mins(trip.arr[k] - t)})</em></b></div>`; }
+  } else {
+    const p = prevStop(trip, s), k = s.nextStop;
+    now = p != null ? `Antara <b>${st(p)}</b> dan <b>${st(k)}</b>` : `Menuju <b>${st(k)}</b>`;
+    nxt = `<div class="kv"><span>Berikutnya</span><b>${st(k)} · ${fmt(trip.arr[k])} <em>(${mins(trip.arr[k] - t)})</em></b></div>`;
+  }
+  const pct = Math.round((s ? s.progress : t > trip.end ? 1 : 0) * 100);
+  return `<div id="tcard" class="tcard" style="--c:${esc(l.color)}" role="dialog" aria-label="${esc(i.name)}">
+    <div class="th">${lb(l)}<div class="tt2"><b>${esc(i.name)}</b><span>${esc(i.num)} · ${esc(i.type)}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="dest"><span>Tujuan</span><b>${esc(trip.head)}</b><small>dari ${st(0)} · ${fmt(trip.start)} → ${fmt(trip.end)}</small></div>
+    <div class="nowl">${now}</div>${nxt}
+    <div class="prog"><i style="width:${pct}%"></i></div>
+    ${i.cls ? `<div class="kv"><span>Kelas</span><b>${esc(i.cls)}</b></div>` : ''}
+    <div class="tags">${trip.est ? '<span class="badge est">Perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'}${l.fak ? '<span class="badge est">Fakultatif</span>' : ''}<span class="badge">Menurut jadwal · keterlambatan tidak terlihat</span></div>
+    <div class="acts"><button type="button" class="btn small primary" data-open="train:${esc(trip.id)}:${trip.date}">Detail lengkap</button><button type="button" class="btn small" data-act="card-follow">${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button></div></div>`;
+}
+function showCard(id, date) {
+  S.card = { id, date };
+  const f = E.find(id, clock(), date); if (!f) return;
+  const s = E.state(f.trip, f.t);
+  const p = s ? s.p : E.pos(f.trip.sids[0]);
+  cardPop.setLngLat(p).setHTML(cardHtml(id, date)).addTo(map);
+  hoverPop.remove();
+  if (innerWidth < 760) { sheetTo('peek'); map.easeTo({ center: p, padding: { top: 300, bottom: 230, left: 16, right: 80 }, duration: 500 }); }
+}
+function closeCard() { S.card = null; cardPop?.remove(); }
 
 /* ---------- views ---------- */
 function counts() {
@@ -312,11 +386,11 @@ function trainRow(t, s) {
   const nx = s.kind === 'dwell' ? s.at : s.nextStop ?? s.next;
   const where = s.kind === 'dwell' ? `di ${stOf(t.sids[s.at]).name}` : `menuju ${stOf(t.sids[nx]).name}`;
   const tm = s.kind === 'dwell' ? t.dep[nx] : t.arr[nx];
-  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>ke ${esc(t.head)}</b><span>${esc(trainName(t))} · ${esc(where)}</span></span><span class="side"><b>${fmt(tm)}</b><span>${nx === t.sids.length - 1 ? 'tiba akhir' : s.kind === 'dwell' ? 'berangkat' : 'tiba'}</span></span></button>`;
+  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>ke ${esc(t.head)}</b><span>${esc(trainInfo(t).short)} · ${esc(trainInfo(t).num)} · ${esc(where)}</span></span><span class="side"><b>${fmt(tm)}</b><span>${nx === t.sids.length - 1 ? 'tiba akhir' : s.kind === 'dwell' ? 'berangkat' : 'tiba'}</span></span></button>`;
 }
 function depRow(d) {
   const t = d.trip, l = lineOf(t.line);
-  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>${esc(t.head)}</b><span>${esc(trainName(t))}</span></span><span class="side"><b>${fmt(d.dep)}</b><span class="${d.wait < 300 ? 'soon' : ''}">${mins(d.wait)}</span></span></button>`;
+  return `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(l)}<span class="main"><b>${esc(t.head)}</b><span>${esc(trainInfo(t).short)} · ${esc(trainInfo(t).num)}</span></span><span class="side"><b>${fmt(d.dep)}</b><span class="${d.wait < 300 ? 'soon' : ''}">${mins(d.wait)}</span></span></button>`;
 }
 const tag = (l) => (l.sched === 'frequency' ? '<span class="badge est">Perkiraan</span>' : l.freqDays ? '<span class="badge real">Jadwal hari kerja</span><span class="badge est">Akhir pekan perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>');
 
@@ -453,7 +527,9 @@ function trainDetail(id) {
   const f = E.find(id, clock(), S.detail.date); if (!f) return notFound(S.kaiState === 'loading' ? 'Memuat jadwal…' : 'Kereta ini tidak ada di jadwal');
   const { trip, t } = f; const l = lineOf(trip.line); const s = E.state(trip, t);
   const hasPass = trip.flags.some((x) => !(x & 1));
-  let h = `<div class="dhead">${lb(l)}<div class="t"><b>${esc(trip.est ? 'Kereta ke ' + trip.head : `${trainName(trip)} ke ${trip.head}`)}</b><span>${esc(l.name)} · ${esc(stOf(trip.sids[0]).name)} → ${esc(stOf(trip.sids.at(-1)).name)}</span></div></div>`;
+  const info = trainInfo(trip);
+  let h = `<div class="dhead">${lb(l)}<div class="t"><b>${esc(info.name)}</b><span>${esc(info.num)} · ${esc(info.type)}</span></div></div>`;
+  h += `<div class="facts f2"><div class="fact wide"><span>Tujuan</span><b>${esc(trip.head)}</b></div><div class="fact"><span>Dari</span><b>${esc(stOf(trip.sids[0]).name)}</b></div><div class="fact"><span>Berangkat → tiba</span><b>${fmt(trip.start)} → ${fmt(trip.end)}</b></div>${info.cls ? `<div class="fact"><span>Kelas</span><b>${esc(info.cls)}</b></div>` : ''}<div class="fact"><span>Berhenti</span><b>${trip.flags.filter((x) => x & 1).length} stasiun</b></div></div>`;
   h += `<div class="card white"><b id="train-status">${trainStatus(id, S.detail.date)}</b><div class="prog" style="--c:${esc(l.color)}"><i id="train-prog" style="width:${Math.round((s ? s.progress : t > trip.end ? 1 : 0) * 100)}%"></i></div><span class="credit">${trip.est ? '<span class="badge est">Perkiraan</span>' : '<span class="badge real">Jadwal resmi</span>'} ${dateNice(trip.date)} · ${dayLabel(trip.date)} · ${fmt(trip.start)}–${fmt(trip.end)} (${dur(trip.end - trip.start)})</span></div>`;
   h += `<div class="acts"><button type="button" class="btn small${S.follow ? ' primary' : ''}" data-act="follow"><svg class="i"><use href="#i-follow"/></svg>${S.follow ? 'Mengikuti' : 'Ikuti di peta'}</button><button type="button" class="btn small" data-act="sim-train"><svg class="i"><use href="#i-play"/></svg>Putar cepat</button><button type="button" class="btn small" data-act="share"><svg class="i"><use href="#i-share"/></svg>Bagikan</button></div>`;
   h += srcNote(l);
@@ -600,10 +676,12 @@ function searchView() {
   const d = E.day(clock().date);
   const qn = nq.replace(/^(ka|mrt|lrt|lrtj|jbdb|sky) /, '').replace(/ /g, '');
   const tr = /\d/.test(q) ? d.trips.filter((t) => !t.est && nrm(shortId(t.id)).replace(/ /g, '') === qn).concat(d.trips.filter((t) => !t.est && qn.length >= 2 && nrm(shortId(t.id)).replace(/ /g, '').startsWith(qn) && nrm(shortId(t.id)).replace(/ /g, '') !== qn)).slice(0, 8) : [];
+  const byName = nq.length >= 3 ? d.trips.filter((t) => !t.est && ls.some((l) => l.id === t.line) && isKA(lineOf(t.line))) : [];
+  if (!tr.length && byName.length) { const c = clock(); tr.push(...byName.filter((t) => t.end >= c.sec).concat(byName.filter((t) => t.end < c.sec)).slice(0, 10)); }
   let h = '';
   if (st.length) h += `<div class="sech"><h2>Stasiun</h2></div><div class="list">${st.map((s) => `<button type="button" class="row" data-open="station:${esc(s.id)}">${dots(s)}<span class="main"><b>${esc(s.name)}</b><span>${esc(s.id)} · ${esc(sysName(s))}</span></span></button>`).join('')}</div>`;
   if (ls.length) h += `<div class="sech"><h2>Jalur &amp; kereta</h2></div><div class="list">${ls.map((l) => `<button type="button" class="row" data-open="line:${esc(l.id)}">${lb(l)}<span class="main"><b>${esc(l.name)}</b><span>${esc(SYS_LABEL[l.sys])}${isKA(l) ? ` · ${esc(stOf(l.stations[0]).name)} – ${esc(stOf(l.stations.at(-1)).name)}` : ''}</span></span></button>`).join('')}</div>`;
-  if (tr.length) h += `<div class="sech"><h2>Perjalanan hari ini</h2></div><div class="list">${tr.map((t) => `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(lineOf(t.line))}<span class="main"><b>${esc(trainName(t))} ke ${esc(t.head)}</b><span>${esc(stOf(t.sids[0]).name)} ${fmt(t.start)} → ${fmt(t.end)}</span></span></button>`).join('')}</div>`;
+  if (tr.length) h += `<div class="sech"><h2>Perjalanan hari ini</h2></div><div class="list">${tr.map((t) => `<button type="button" class="row" data-open="train:${esc(t.id)}:${t.date}">${lb(lineOf(t.line))}<span class="main"><b>${esc(trainInfo(t).name)} · ${esc(trainInfo(t).num)}</b><span>ke ${esc(t.head)} · ${esc(stOf(t.sids[0]).name)} ${fmt(t.start)} → ${fmt(t.end)}</span></span></button>`).join('')}</div>`;
   if (S.placeQ === q && S.places.length) h += `<div class="sech"><h2>Tempat</h2><span>© OpenStreetMap · Photon</span></div><div class="list">${S.places.map((p, i) => `<button type="button" class="row" data-place="${i}"><span class="lb" style="background:#2F7BF6"><svg class="i" style="fill:#fff;width:16px;height:16px"><use href="#i-pin"/></svg></span><span class="main"><b>${esc(p.name)}</b><span>${esc(p.sub)}</span></span></button>`).join('')}</div>`;
   if (!h) h = q.length > 2 && S.placeQ !== q ? `<div class="empty">Mencari…</div>` : `<div class="empty"><b>Tidak ketemu</b>Coba nama stasiun (Manggarai), jalur (Bogor, Argo), nomor KA (1000, KA 5), atau tempat.</div>`;
   return h;
@@ -654,6 +732,7 @@ function render(keep) {
 }
 
 function open(type, id, extra = {}, push = true) {
+  if (S.card) { const keep = S.follow && type === 'train'; closeCard(); S.follow = keep; }
   if (type === 'train' && String(id).includes(':')) { const k = id.lastIndexOf(':'); extra.date = id.slice(k + 1); id = id.slice(0, k); }
   if (type === 'journey') id = +id;
   S.detail = { type, id, ...extra };
@@ -820,7 +899,9 @@ function bindUI() {
     if (t.dataset.tthour) { S.ttHour = +t.dataset.tthour; render(true); return; }
     if (t.dataset.speed) { const c = clock(); setClock(c.date, c.sec, +t.dataset.speed); tick(); writeHash(false); return; }
     const a = t.dataset.act;
-    if (a === 'back') back();
+    if (a === 'card-close') closeCard();
+    else if (a === 'card-follow') { S.follow = !S.follow; if (S.follow) { const f = E.find(S.card.id, clock(), S.card.date); const st = f && E.state(f.trip, f.t); if (st) map.easeTo({ center: st.p, zoom: Math.max(map.getZoom(), 13), duration: 600 }); } toast(S.follow ? 'Peta ikut bergerak bersama kereta ini' : 'Berhenti mengikuti'); tick(); }
+    else if (a === 'back') back();
     else if (a === 'about') aboutSheet();
     else if (a === 'about-close') $('#about').hidden = true;
     else if (a === 'locate') locate();
@@ -860,7 +941,7 @@ function bindUI() {
   document.addEventListener('input', (e) => { if (e.target.id === 'pick-q') { S.pickQ = e.target.value; render(true); } });
   document.addEventListener('keydown', (e) => {
     if (e.target.id === 'pick-q' && e.key === 'Enter') { e.preventDefault(); view.querySelector('[data-setplace]')?.click(); return; }
-    if (e.key === 'Escape') { if (!$('#about').hidden) $('#about').hidden = true; else if (!$('#layers').hidden) $('#layers').hidden = true; else if (S.pick && S.plan.from && S.plan.to) { S.pick = null; render(true); } else if (S.detail) back(); }
+    if (e.key === 'Escape') { if (S.card) closeCard(); else if (!$('#about').hidden) $('#about').hidden = true; else if (!$('#layers').hidden) $('#layers').hidden = true; else if (S.pick && S.plan.from && S.plan.to) { S.pick = null; render(true); } else if (S.detail) back(); }
   });
   const q = $('#q');
   q.addEventListener('input', () => { S.q = q.value; $('#qx').hidden = !q.value; if (S.tab === 'peta' && S.detail) S.detail = null; render(); if (S.tab === 'peta') searchPlaces(q.value.trim()); });
