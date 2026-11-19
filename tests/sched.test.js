@@ -131,12 +131,41 @@ test('speed estimates are plausible: Argo Semeru ~80 km/h average, KRL under 100
 
 test('level crossings: next trains passing a point between Manggarai and Sudirman', () => {
   const J = rd('jpl.json');
-  assert.ok(J.x.length > 5000 && J.stats.bar > 300, 'OSM crossings extracted');
-  const x = J.x.find((r) => (r[8] === 'MRI' && r[9] === 'SUD') || (r[8] === 'SUD' && r[9] === 'MRI'));
+  assert.ok(J.v === 2 && J.x.length > 3000 && J.stats.palang + J.stats.jaga > 200, 'OSM crossings extracted');
+  const x = J.x.find((r) => r[3] !== 'fly' && r[3] !== 'under' && (r[8] === 'MRI' && r[9] === 'SUD') || (r[8] === 'SUD' && r[9] === 'MRI'));
   assert.ok(x, 'a crossing snapped to the MRI–SUD section');
   const ps = E.passes(x[8], x[9], x[10], at(D, 8, 0));
   assert.ok(ps.length >= 3, 'trains pass in the morning');
   assert.ok(ps.every((p, i) => p.dt >= -60 && p.dt <= 3 * 3600 && (i === 0 || p.dt >= ps[i - 1].dt)));
   // the passing time lies between the scheduled departure and arrival of that leg
   for (const p of ps) { const i = p.trip.sids.findIndex((s, k) => (s === x[8] || s === x[9]) && (p.trip.sids[k + 1] === x[8] || p.trip.sids[k + 1] === x[9])); assert.ok(p.at >= p.trip.dep[i] - 61 && p.at <= p.trip.arr[i + 1] + 61); }
+});
+
+test('level crossings v2: cleaned, statuses, km and Daop estimates, photos with licence', () => {
+  const J = rd('jpl.json');
+  const CATS = new Set(['jaga', 'oto', 'palang', 'sinyal', 'tdk', 'liar', 'tutup', 'ped', 'unk', 'fly', 'under']);
+  assert.ok(J.x.every((r) => CATS.has(r[3])), 'known status');
+  assert.ok(J.clean.merged_duplicates > 500 && J.clean.drop_inactive_track > 0, 'cleaning stats recorded');
+  const lc = J.x.filter((r) => r[3] !== 'fly' && r[3] !== 'under');
+  // no two level crossings closer than 8 m (multi-track duplicates merged)
+  const R = 6371000, d = (a, b) => { const r = Math.PI / 180; const h = Math.sin((b[2] - a[2]) * r / 2) ** 2 + Math.cos(a[2] * r) * Math.cos(b[2] * r) * Math.sin((b[1] - a[1]) * r / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); };
+  const g = new Map(); let close = 0;
+  for (const r of lc) { const k = Math.floor(r[1] / 0.001) + ':' + Math.floor(r[2] / 0.001); (g.get(k) || g.set(k, []).get(k)).push(r); }
+  for (const r of lc) { const gx = Math.floor(r[1] / 0.001), gy = Math.floor(r[2] / 0.001); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const q of g.get(gx + dx + ':' + (gy + dy)) || []) if (q !== r && d(q, r) < 7) close++; }
+  assert.equal(close, 0, 'duplicates merged');
+  assert.ok(J.x.filter((r) => r[3] === 'fly').length > 100 && J.x.filter((r) => r[3] === 'under').length > 100, 'grade separations detected');
+  const km = lc.filter((r) => r[12]); assert.ok(km.length > lc.length * 0.7 && km.every((r) => /^\d+\+\d{3}$/.test(r[12])), 'km estimates');
+  const braga = lc.find((r) => r[6] === 'Jalan Braga'); assert.ok(braga && Math.abs(parseFloat(braga[12].replace('+', '.')) - 155.9) < 0.3, 'Braga at km ~155+9');
+  assert.ok(lc.filter((r) => r[15]).length > lc.length * 0.9 && lc.every((r) => !r[15] || /^(Daop|Divre) \d$/.test(r[15])), 'Daop');
+  assert.ok(Object.keys(J.daop).length >= 9);
+  for (const p of J.photos) { assert.ok(/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(p[1]) && p[4] && p[5] && p[8] <= 60, 'photo with author, licence, <= 60 m'); }
+  assert.ok(J.x.every((r) => r[19] < J.photos.length));
+});
+test('station extras: photos with licence, Daop and km', () => {
+  const X = rd('stations_x.json');
+  const s = Object.values(X.s);
+  assert.ok(s.filter((v) => v.img).length / s.length > 0.85, 'photo coverage > 85%');
+  assert.ok(s.every((v) => !v.img || (/^https:\/\/(upload|thumb)\.wikimedia\.org\//.test(v.img.t) && v.img.a && v.img.l)));
+  assert.equal(X.s.CN.daop, 'Daop 3'); assert.equal(X.s.KYA.daop, 'Daop 5');
+  assert.ok(Math.abs(X.s.CN.km[0][0] - 219.168) < 0.001);
 });

@@ -16,4 +16,8 @@ Gambar di `public/img/fleet/` adalah ilustrasi tipe armada yang umum dipakai tia
 # Data peta dan perlintasan sebidang
 
 - Rel, stasiun, dan **perlintasan sebidang (JPL)** (`public/data/network.json`, `public/data/jpl.json`): © kontributor OpenStreetMap, tersedia di bawah Open Database License (ODbL) 1.0, https://www.openstreetmap.org/copyright. Diambil dari ekstrak Geofabrik Pulau Jawa; `jpl.json` adalah turunan database (titik `railway=level_crossing`/`railway=crossing` di rel aktif, tag pengaman, nama jalan dari jalan yang memotong, dan penempatan pada ruas antarstasiun) dan berlisensi ODbL 1.0.
+- **Foto stasiun** (`public/data/stations_x.json`): berkas Wikimedia Commons yang ditautkan dari Wikidata (P18, CC0). Setiap foto ditampilkan dengan nama pembuat dan lisensinya (CC BY-SA 4.0/3.0/2.0, CC BY 4.0/3.0/2.0, CC0, GFDL, domain publik) serta tautan ke halaman berkasnya. Daop dan km stasiun diambil dari infobox artikel stasiun di id.wikipedia.org (CC BY-SA 4.0).
+- **Foto perlintasan** (`photos` di `jpl.json`): berkas Wikimedia Commons bergeotag dalam radius 60 m dari titik, dengan pembuat dan lisensi per foto. Mapillary dan Google Street View hanya ditautkan, tidak ditampilkan.
+- Jarak antarstasiun GAPEKA (transportforbandung/Gapeka-parser) dipakai untuk menskalakan perkiraan KM.
+- Portal pemerintah yang memuat daftar JPL (DJKA e-Perlintasan, SIMARLIN Lumajang, SIMINFRA Grobogan) tidak mencantumkan lisensi pemakaian ulang, jadi datanya tidak diimpor.
 - Data perlintasan 168Railway (https://168railway.com/jpl) **tidak** dipakai: itu database survei milik mereka tanpa lisensi terbuka.

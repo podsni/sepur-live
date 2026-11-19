@@ -218,7 +218,7 @@ function initMap() {
       if (jc && !tr) { map.getSource('jpl').getClusterExpansionZoom(jc.properties.cluster_id).then((z) => map.easeTo({ center: jc.geometry.coordinates, zoom: z + 0.3 })).catch(() => {}); return; }
       if (tr) showCard(tr.properties.id, tr.properties.date);
       else if (jp && JPL) showJplCard(jp.properties.i);
-      else if (st) open('station', st.properties.id);
+      else if (st) { open('station', st.properties.id); stationPop(st.properties.id); }
       else if (ln) open('line', ln.properties.line);
       else closeCard();
     });
@@ -237,7 +237,7 @@ function initMap() {
     if (S.detail) focusDetail(false);
     else if (S.tab === 'rute' && S.planRes?.length) drawJourney(S.planRes[0], false);
     tick();
-    window.__map = map; window.__sepurDebug = { E, S, clock };
+    window.__map = map; window.__sepurDebug = { E, S, clock, jplShown: () => (JPL ? JPL.x.filter(jpass).map((r) => r[3]) : []) };
     requestAnimationFrame(frame);
     app.removeAttribute('data-loading');
   });
@@ -395,78 +395,134 @@ function placeCard(p, html) {
     map.easeTo({ center: p, offset: [tx - W / 2, ty - H / 2], duration: 450 });
   });
 }
-function closeCard() { S.card = null; S.jcard = null; cardPop?.remove(); }
+function closeCard() { S.card = null; S.jcard = null; S.scard = null; cardPop?.remove(); }
 
 /* ---------- level crossings (JPL) from OpenStreetMap ---------- */
+// status names follow the categories used by DJKA / 168railway, but are only set where the OSM tags say so
 const JCAT = {
-  bar: ['Berpalang pintu', '#1E9E4A'], sig: ['Lampu / bel, tanpa palang', '#E8A317'], open: ['Tanpa palang & sinyal', '#D63B3B'],
-  liar: ['Tidak resmi (liar)', '#8B1A1A'], ped: ['Penyeberangan pejalan kaki', '#2D7FF9'], unk: ['Pengaman belum terdata di OSM', '#8A8F98'],
+  jaga: ['Dijaga petugas', '#1E9E4A'], oto: ['Berpalang otomatis', '#12A39A'], palang: ['Berpalang · penjagaan belum terdata', '#7CB342'],
+  sinyal: ['Tidak dijaga · ada lampu/bel', '#E8A317'], tdk: ['Tidak dijaga · tanpa palang & sinyal', '#D63B3B'], liar: ['Liar (tidak resmi)', '#8B1A1A'],
+  tutup: ['Ditutup', '#3A3A40'], ped: ['Pejalan kaki', '#2D7FF9'], unk: ['Pengaman belum terdata', '#8A8F98'],
+  fly: ['Flyover (jalan di atas rel)', '#7B4FE0'], under: ['Underpass (jalan di bawah rel)', '#A0612D'],
 };
+const GSEP = new Set(['fly', 'under']);
+const CONF = { 3: ['Tinggi', 'status & nama jalan terdata di OSM'], 2: ['Sedang', 'sebagian atribut terdata'], 1: ['Rendah', 'baru lokasi & jalan; pengaman belum terdata'] };
 const BARRIER = { full: 'Palang penuh', half: 'Palang setengah', double_half: 'Palang setengah ganda', yes: 'Ada palang', gate: 'Pintu geser', chain: 'Rantai', no: 'Tidak ada' };
-const HW = { motorway: 'jalan tol', trunk: 'jalan nasional', primary: 'jalan utama', secondary: 'jalan sekunder', tertiary: 'jalan penghubung', unclassified: 'jalan lokal', residential: 'jalan permukiman', service: 'jalan layanan', track: 'jalan tanah', footway: 'jalan setapak', path: 'jalan setapak', pedestrian: 'jalur pejalan kaki', living_street: 'jalan lingkungan', cycleway: 'jalur sepeda', steps: 'tangga' };
+const HW = { motorway: 'jalan tol', trunk: 'jalan nasional', primary: 'jalan utama', secondary: 'jalan sekunder', tertiary: 'jalan penghubung', unclassified: 'jalan lokal', residential: 'jalan permukiman', service: 'jalan layanan', track: 'jalan tanah', footway: 'jalan setapak', path: 'jalan setapak', pedestrian: 'jalur pejalan kaki', living_street: 'jalan lingkungan', cycleway: 'jalur sepeda', steps: 'tangga', road: 'jalan', motorway_link: 'akses tol', trunk_link: 'jalan nasional', primary_link: 'jalan utama', secondary_link: 'jalan sekunder', tertiary_link: 'jalan penghubung' };
 let JPL = null, jplLoading = null;
-const jrow = (i) => { const r = JPL.x[i]; return { i, osm: r[0], p: [r[1], r[2]], cat: r[3], light: r[4] & 1, bell: r[4] & 2, sup: r[4] & 4, noLight: r[4] & 8, noBell: r[4] & 16, barrier: r[5], road: r[6], ref: r[7], a: r[8], b: r[9], dA: r[10], L: r[11], pos: r[12], hw: r[13], name: r[14] }; };
+S.jf = LS.get('jf', { cats: [], daop: '' }); // empty cats = all
+const jrow = (i) => { const r = JPL.x[i]; return { i, osm: r[0], p: [r[1], r[2]], cat: r[3], light: r[4] & 1, bell: r[4] & 2, sup: r[4] & 4, noLight: r[4] & 8, noBell: r[4] & 16, dInf: r[4] & 32, barrier: r[5], road: r[6], ref: r[7], a: r[8], b: r[9], dA: r[10], L: r[11], km: r[12], hw: r[13], name: r[14], daop: r[15], tracks: r[16], conf: r[17], src: r[18], ph: r[19] >= 0 ? JPL.photos[r[19]] : null, mly: r[20], nodes: r[21] }; };
 const jroad = (x) => x.road || (x.hw ? (HW[x.hw] || 'jalan') + ' tanpa nama' : 'Jalan belum terdata');
-const jtitle = (x) => x.name || (x.ref ? 'JPL ' + x.ref : x.road ? 'Perlintasan ' + x.road : 'Perlintasan sebidang');
+const jtitle = (x) => GSEP.has(x.cat) ? `${x.cat === 'fly' ? 'Flyover' : 'Underpass'} ${x.road || ''}`.trim() : x.name || (x.ref ? 'Perlintasan ' + x.ref : x.road ? 'Perlintasan ' + x.road : 'Perlintasan sebidang');
+const jpass = (r) => (!S.jf.cats.length || S.jf.cats.includes(r[3])) && (!S.jf.daop || r[15] === S.jf.daop);
+function jplData() {
+  const fs = []; JPL.x.forEach((r, i) => { if (jpass(r)) fs.push({ type: 'Feature', id: i, properties: { i, c: r[3] }, geometry: { type: 'Point', coordinates: [r[1], r[2]] } }); });
+  return FC(fs);
+}
+function jplRefresh() { if (JPL && map?.getSource('jpl')) map.getSource('jpl').setData(jplData()); }
 function loadJPL() {
   if (JPL) return Promise.resolve(JPL);
   return (jplLoading ||= getJSON('/data/jpl.json').then((d) => {
     JPL = d;
-    if (map?.getSource('jpl')) map.getSource('jpl').setData(FC(d.x.map((r, i) => ({ type: 'Feature', id: i, properties: { i, c: r[3] }, geometry: { type: 'Point', coordinates: [r[1], r[2]] } }))));
+    S.jf.cats = S.jf.cats.filter((k) => JCAT[k]); if (S.jf.daop && !d.daop[S.jf.daop]) S.jf.daop = '';
+    jplRefresh(); jplLegend();
     if (S.q) render();
+    if (!$('#layers').hidden) layersPanel();
     return d;
   }).catch((e) => { jplLoading = null; toast('Data perlintasan belum bisa dimuat'); throw e; }));
 }
 function jplLayers() {
-  map.addSource('jpl', { type: 'geojson', data: FC(), cluster: true, clusterRadius: 42, clusterMaxZoom: 12 });
+  map.addSource('jpl', { type: 'geojson', data: JPL ? jplData() : FC(), cluster: true, clusterRadius: 42, clusterMaxZoom: 12 });
   const vis = S.layers.jpl ? 'visible' : 'none';
   const col = ['match', ['get', 'c'], ...Object.entries(JCAT).flatMap(([k, v]) => [k, v[1]]), '#8A8F98'];
   map.addLayer({ id: 'jpl-cl', type: 'circle', source: 'jpl', filter: ['has', 'point_count'], layout: { visibility: vis }, paint: { 'circle-color': '#FFD21F', 'circle-opacity': 0.95, 'circle-stroke-color': '#1d1d22', 'circle-stroke-width': 1.5, 'circle-radius': ['step', ['get', 'point_count'], 11, 20, 14, 100, 18, 500, 22] } }, 'tr-halo');
   map.addLayer({ id: 'jpl-cn', type: 'symbol', source: 'jpl', filter: ['has', 'point_count'], layout: { visibility: vis, 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-allow-overlap': true }, paint: { 'text-color': '#1d1d22' } }, 'tr-halo');
-  map.addLayer({ id: 'jpl-p', type: 'circle', source: 'jpl', filter: ['!', ['has', 'point_count']], layout: { visibility: vis }, paint: { 'circle-color': col, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 14, 6, 17, 9], 'circle-stroke-color': '#fff', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 2] } }, 'tr-halo');
-  map.addLayer({ id: 'jpl-x', type: 'symbol', source: 'jpl', minzoom: 14, filter: ['!', ['has', 'point_count']], layout: { visibility: vis, 'text-field': '×', 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 17, 15], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#fff' } }, 'tr-halo');
+  map.addLayer({ id: 'jpl-p', type: 'circle', source: 'jpl', filter: ['!', ['has', 'point_count']], layout: { visibility: vis }, paint: { 'circle-color': col, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 3.5, 14, 6, 17, 9], 'circle-stroke-color': ['match', ['get', 'c'], ['fly', 'under'], '#FFD21F', '#fff'], 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 15, 2] } }, 'tr-halo');
+  map.addLayer({ id: 'jpl-x', type: 'symbol', source: 'jpl', minzoom: 14, filter: ['!', ['has', 'point_count']], layout: { visibility: vis, 'text-field': ['match', ['get', 'c'], 'fly', '▲', 'under', '▼', 'tutup', '–', '×'], 'text-font': ['Noto Sans Bold'], 'text-size': ['interpolate', ['linear'], ['zoom'], 14, 9, 17, 14], 'text-allow-overlap': true, 'text-ignore-placement': true }, paint: { 'text-color': '#fff' } }, 'tr-halo');
   for (const id of ['jpl-p', 'jpl-cl']) {
     map.on('mouseenter', id, () => (map.getCanvas().style.cursor = 'pointer'));
     map.on('mouseleave', id, () => (map.getCanvas().style.cursor = ''));
   }
   if (S.layers.jpl) loadJPL();
 }
+const jcount = (k) => (JPL ? (S.jf.daop ? JPL.daop[S.jf.daop]?.[k] || 0 : JPL.stats[k] || 0) : 0);
+function jplFilterHtml(compact) {
+  if (!JPL) return '<p class="jsrc">Memuat data perlintasan…</p>';
+  const cats = Object.keys(JCAT).filter((k) => JPL.stats[k]);
+  const on = (k) => !S.jf.cats.length || S.jf.cats.includes(k);
+  const shown = JPL.x.reduce((n, r) => n + (jpass(r) ? 1 : 0), 0);
+  const dk = Object.keys(JPL.daop).filter((k) => k !== '-').sort((a, b) => (a[0] === b[0] ? parseInt(a.replace(/\D/g, '')) - parseInt(b.replace(/\D/g, '')) : a < b ? -1 : 1));
+  return `<div class="jfil" id="jfil">
+    <div class="jfh"><b>Status</b><span>${shown.toLocaleString('id-ID')} dari ${JPL.x.length.toLocaleString('id-ID')} titik</span>${S.jf.cats.length || S.jf.daop ? '<button type="button" class="lnk" data-jf="reset">Reset</button>' : ''}</div>
+    <div class="jchips">${cats.map((k) => `<button type="button" class="jchip" data-jf="cat:${k}" aria-pressed="${on(k)}"><i style="background:${JCAT[k][1]}"></i>${esc(JCAT[k][0])}<em>${jcount(k).toLocaleString('id-ID')}</em></button>`).join('')}</div>
+    <div class="jfh"><b>Daop / Divre</b><span>dari stasiun terdekat</span></div>
+    <div class="jchips">${[['', 'Semua'], ...dk.map((k) => [k, k])].map(([k, t]) => `<button type="button" class="jchip d" data-jf="daop:${esc(k)}" aria-pressed="${S.jf.daop === k}">${esc(t)}${k ? `<em>${JPL.daop[k].all.toLocaleString('id-ID')}</em>` : ''}</button>`).join('')}</div>
+    ${compact ? '' : `<p class="jsrc">Status hanya diisi bila tag OpenStreetMap menyebutnya. "Belum terdata" bukan berarti tidak aman. Daop diambil dari stasiun di kedua ujung petak (infobox Wikipedia).</p>`}</div>`;
+}
+function jfAct(v) {
+  if (v === 'reset') S.jf = { cats: [], daop: '' };
+  else if (v.startsWith('cat:')) {
+    const k = v.slice(4), all = Object.keys(JCAT).filter((c) => JPL.stats[c]);
+    let cur = S.jf.cats.length ? [...S.jf.cats] : [...all];
+    // first tap while showing everything = show only this status; later taps toggle
+    if (!S.jf.cats.length) cur = [k]; else cur = cur.includes(k) ? cur.filter((c) => c !== k) : [...cur, k];
+    S.jf.cats = cur.length === all.length ? [] : cur;
+  } else if (v.startsWith('daop:')) S.jf.daop = v.slice(5);
+  LS.set('jf', S.jf); jplRefresh(); jplLegend(); writeHash();
+  if (S.jcard != null && !jpass(JPL.x[S.jcard])) closeCard();
+  if (!$('#layers').hidden) layersPanel();
+}
 function jplLegend() {
   const el = $('#jlegf'); if (!el) return;
-  el.innerHTML = `<b>Perlintasan sebidang</b>${Object.values(JCAT).map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}<span><i class="cl"></i>Kelompok titik (ketuk untuk perbesar)</span><small>© OpenStreetMap</small>`;
+  const cats = Object.keys(JCAT).filter((k) => !JPL || JPL.stats[k]);
+  const on = (k) => !S.jf.cats.length || S.jf.cats.includes(k);
+  el.innerHTML = `<b>Perlintasan sebidang${S.jf.daop ? ' · ' + esc(S.jf.daop) : ''}</b>${cats.map((k) => `<button type="button" class="jlg${on(k) ? '' : ' off'}" data-jf="cat:${k}" aria-pressed="${on(k)}"><i style="background:${JCAT[k][1]}"></i>${JCAT[k][0]}</button>`).join('')}<span><i class="cl"></i>Kelompok titik (ketuk untuk perbesar)</span>${S.jf.cats.length || S.jf.daop ? '<button type="button" class="lnk" data-jf="reset">Tampilkan semua</button>' : ''}<small>© OpenStreetMap · filter lengkap di <svg class="i"><use href="#i-layers"/></svg></small>`;
 }
 function setJPL(on, quiet) {
   S.layers.jpl = !!on; applyLayers();
   $('#b-jpl')?.setAttribute('aria-pressed', String(!!on));
   app.toggleAttribute('data-jpl', !!on); jplLegend();
-  if (on) loadJPL().then(() => { if (!quiet) toast(`Perlintasan sebidang: ${JPL.x.length.toLocaleString('id-ID')} titik dari OpenStreetMap${map.getZoom() < 9 ? ' · perbesar peta untuk detail' : ''}`); }).catch(() => {});
+  if (on) loadJPL().then(() => { if (!quiet) toast(`Perlintasan: ${JPL.x.length.toLocaleString('id-ID')} titik dari OpenStreetMap${map.getZoom() < 9 ? ' · perbesar peta untuk detail' : ''}`); }).catch(() => {});
   else if (S.jcard != null) closeCard();
   if (!$('#layers').hidden) layersPanel();
   writeHash();
 }
 function jplNext(x) {
   if (!x.a) return '<div class="jnone">Titik ini tidak berada di jalur yang punya jadwal di Sepur Live, jadi kereta yang lewat belum bisa diperkirakan.</div>';
-  const ps = E.passes(x.a, x.b, x.dA, clock(), 3 * 3600, innerWidth < 760 ? 3 : 5);
+  const ps = E.passes(x.a, x.b, x.dA, clock(), 3 * 3600, innerWidth < 760 ? 2 : 5);
   if (!ps.length) return '<div class="jnone">Tidak ada kereta terjadwal lewat dalam 3 jam ke depan.</div>';
   return `<div class="jnext">${ps.map((q) => { const l = lineOf(q.trip.line), i = trainInfo(q.trip); return `<button type="button" class="jn" data-open="train:${esc(q.trip.id)}:${q.trip.date}">${lb(l)}<span class="main"><b>${esc(i.short)} · ${esc(i.num)}</b><span>ke ${esc(q.trip.head)} · ≈ ${kmh(q.v, l)} km/j</span></span><span class="side"><b>≈ ${fmt(Math.round(q.at) % 86400)}</b><span>${q.dt < 30 ? 'sedang lewat' : mins(q.dt)}</span></span></button>`; }).join('')}</div>`;
 }
+const viewers = (p) => `<a href="https://www.mapillary.com/app/?lat=${p[1].toFixed(6)}&lng=${p[0].toFixed(6)}&z=18" target="_blank" rel="noopener">Mapillary</a><a href="https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${p[1].toFixed(6)},${p[0].toFixed(6)}" target="_blank" rel="noopener">Street View</a><a href="https://commons.wikimedia.org/wiki/Special:Nearby#/coord/${p[1].toFixed(5)},${p[0].toFixed(5)}" target="_blank" rel="noopener">Commons sekitar</a>`;
+function jplPhoto(x) {
+  const ph = x.ph;
+  if (!ph) return `<div class="jph none"><div class="noph"><svg class="i"><use href="#i-cam"/></svg><b>Belum ada foto</b><span>Lihat kondisi lapangan di:</span></div><div class="vw">${x.mly ? `<a href="https://www.mapillary.com/app/?pKey=${esc(x.mly)}" target="_blank" rel="noopener">Foto Mapillary (tag OSM)</a>` : ''}${viewers(x.p)}</div></div>`;
+  const [f, t, w, h, au, lic, lu, page, d, via] = ph;
+  const near = via === 'osm' ? 'foto yang ditautkan di OSM' : via === 'geo1' ? `foto perlintasan ±${d} m dari titik` : `foto di sekitar titik (±${d} m) · mungkin tidak tepat di perlintasan`;
+  return `<figure class="jph"><a href="${esc(page)}" target="_blank" rel="noopener"><img src="${esc(t)}" alt="${esc(f.replace(/\.[a-z]+$/i, ''))}" width="${w}" height="${h}" loading="lazy" decoding="async"></a>
+    <figcaption>${esc(near)} · <a href="${esc(page)}" target="_blank" rel="noopener">${esc(au)}</a>, ${lu ? `<a href="${esc(lu)}" target="_blank" rel="noopener">${esc(lic)}</a>` : esc(lic)} · Wikimedia Commons<span class="vw">${viewers(x.p)}</span></figcaption></figure>`;
+}
 function jplCardHtml(i, liveOnly) {
-  const x = jrow(i), [cl, color] = JCAT[x.cat];
-  const live = `<div class="kv"><span>Kereta berikutnya lewat</span><b>perkiraan dari jadwal</b></div>${jplNext(x)}`;
+  const x = jrow(i), [cl, color] = JCAT[x.cat] || JCAT.unk, gs = GSEP.has(x.cat);
+  const live = gs ? '' : `<div class="kv"><span>Kereta berikutnya lewat</span><b>perkiraan dari jadwal</b></div>${jplNext(x)}`;
   if (liveOnly) return live;
   const yn = (v, no) => (v ? 'Ada' : no ? 'Tidak ada' : 'Belum terdata');
   const sa = x.a && stOf(x.a), sb = x.b && stOf(x.b);
-  const lines = x.a ? E.allLines().filter((l) => (JPL.lines[l.id] && (l.stations.concat(...(l.branches || [])).includes(x.a) && l.stations.concat(...(l.branches || [])).includes(x.b) || (l.pairs || []).includes(x.a < x.b ? x.a + '>' + x.b : x.b + '>' + x.a) || (l.pairs || []).includes(x.a + '>' + x.b) || (l.pairs || []).includes(x.b + '>' + x.a)))) : [];
-  const tagged = x.barrier || x.light || x.bell || x.cat !== 'unk';
+  const lines = x.a ? E.allLines().filter((l) => (JPL.lines[l.id] && (l.stations.concat(...(l.branches || [])).includes(x.a) && l.stations.concat(...(l.branches || [])).includes(x.b) || (l.pairs || []).includes(x.a + '>' + x.b) || (l.pairs || []).includes(x.b + '>' + x.a)))) : [];
+  const cf = CONF[x.conf] || CONF[1];
+  const sub = gs ? 'bukan perlintasan sebidang · terdeteksi dari geometri OSM' : x.cat === 'jaga' ? 'menurut tag OSM' : x.cat === 'unk' ? 'palang/lampu/penjaga belum ada di OSM' : '';
   return `<div id="tcard" class="tcard jcard" style="--c:${color}" role="dialog" aria-label="${esc(jtitle(x))}">
-    <div class="th"><span class="jic" style="background:${color}">×</span><div class="tt2"><b>${esc(jtitle(x))}</b><span>${esc(cl)}${x.sup ? ' · dijaga petugas' : ''}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
+    <div class="th"><span class="jic" style="background:${color}">${x.cat === 'fly' ? '▲' : x.cat === 'under' ? '▼' : '×'}</span><div class="tt2"><b>${esc(jtitle(x))}</b><span>${esc(cl)}${sub ? ' · ' + esc(sub) : ''}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>
+    ${jplPhoto(x)}
     <div class="dest"><span>Jalan</span><b>${esc(jroad(x))}</b>${x.road && x.hw ? `<small>${esc(HW[x.hw] || x.hw)}</small>` : ''}</div>
-    <div class="jgrid"><div><span>Palang</span><b>${esc(x.barrier ? BARRIER[x.barrier] || x.barrier : x.cat === 'open' || x.cat === 'sig' ? 'Tidak ada' : 'Belum terdata')}</b></div><div><span>Lampu</span><b>${yn(x.light, x.noLight || x.cat === 'open')}</b></div><div><span>Bel</span><b>${yn(x.bell, x.noBell || x.cat === 'open')}</b></div></div>
-    ${sa && sb ? `<div class="kv"><span>Antara</span><b>${esc(sa.name)} – ${esc(sb.name)}</b></div><div class="kv"><span>Posisi</span><b>± ${(x.dA / 1000).toFixed(1).replace('.', ',')} km dari ${esc(sa.name)}${x.pos ? ` · KM ${esc(x.pos)}` : ''}</b></div>` : '<div class="kv"><span>Jalur</span><b>Di luar jalur berjadwal Sepur Live</b></div>'}
+    ${gs ? '' : `<div class="jgrid"><div><span>Palang</span><b>${esc(x.barrier ? BARRIER[x.barrier] || x.barrier : x.cat === 'tdk' || x.cat === 'sinyal' ? 'Tidak ada' : 'Belum terdata')}</b></div><div><span>Lampu</span><b>${yn(x.light, x.noLight || x.cat === 'tdk')}</b></div><div class="jbel"><span>Bel</span><b>${yn(x.bell, x.noBell || x.cat === 'tdk')}</b></div><div><span>Penjaga</span><b>${x.sup ? 'Ada (tag OSM)' : x.cat === 'tdk' || x.cat === 'sinyal' || x.cat === 'liar' ? 'Tidak dijaga' : x.cat === 'oto' ? 'Otomatis' : 'Belum terdata'}</b></div></div>`}
+    <div class="jgrid g2"><div><span>Daop</span><b>${x.daop ? esc(x.daop) + (x.dInf ? '<em> perkiraan</em>' : '') : '—'}</b></div><div><span>KM</span><b>${x.km ? (x.src.includes('wp') ? '± ' : '') + esc(x.km) + (x.src.includes('wp') ? '<em> perkiraan</em>' : '') : '—'}</b></div><div><span>Jalur rel</span><b>${x.tracks ? x.tracks + ' jalur' : '—'}</b></div><div class="jno"><span>Nomor JPL</span><b>${x.ref ? esc(x.ref) + '<em> tag OSM</em>' : 'Belum ada di data terbuka'}</b></div></div>
+    ${sa && sb ? `<div class="kv"><span>Antara</span><b>${esc(sa.name)} – ${esc(sb.name)}</b></div><div class="kv jpos"><span>Posisi</span><b>± ${(x.dA / 1000).toFixed(1).replace('.', ',')} km dari ${esc(sa.name)}</b></div>` : '<div class="kv"><span>Jalur</span><b>Di luar jalur berjadwal Sepur Live</b></div>'}
     ${lines.length ? `<div class="jlines">${lines.slice(0, 8).map((l) => lb(l)).join('')}${lines.length > 8 ? `<span class="more">+${lines.length - 8}</span>` : ''}</div>` : ''}
-    <div id="jlive">${live}</div>
-    <div class="tags"><span class="badge">Data OpenStreetMap (ODbL)</span><span class="badge">Waktu lewat: perkiraan, bukan GPS</span></div>
-    <div class="kv small"><span>${x.p[1].toFixed(5)}, ${x.p[0].toFixed(5)}</span><b><a href="https://www.openstreetmap.org/node/${x.osm}" target="_blank" rel="noopener">Lihat / perbaiki di OSM</a></b></div></div>`;
+    ${gs ? '' : `<div id="jlive">${live}</div>`}
+    <div class="kv small jconf"><span>Kelengkapan data</span><b class="cf c${x.conf}" title="${esc(cf[1])}">${cf[0]} · ${esc(cf[1])}</b></div>
+    <div class="tags"><span class="badge">Sumber: OpenStreetMap (ODbL)${x.src.includes('wp') ? ' · KM dari km stasiun Wikipedia' : ''}</span>${gs ? '' : '<span class="badge">Waktu lewat: perkiraan, bukan GPS</span>'}</div>
+    <div class="kv small jco"><span>${x.p[1].toFixed(5)}, ${x.p[0].toFixed(5)}</span><b><a href="https://www.openstreetmap.org/${gs ? 'way' : 'node'}/${x.osm}" target="_blank" rel="noopener">Lihat / perbaiki di OSM</a></b></div></div>`;
 }
 function showJplCard(i) {
   S.card = null; S.jcard = i;
@@ -477,7 +533,33 @@ function jplStatsHtml(lineId) {
   const st = lineId ? JPL.lines[lineId] : { ...JPL.stats, all: JPL.x.length };
   if (!st) return '';
   const bars = Object.keys(JCAT).filter((k) => st[k]).map((k) => `<div class="jst"><i style="background:${JCAT[k][1]}"></i><span>${JCAT[k][0]}</span><b>${st[k].toLocaleString('id-ID')}</b></div>`).join('');
-  return `<div class="jstats"><div class="jstot"><b>${st.all.toLocaleString('id-ID')}</b> perlintasan sebidang${lineId ? ' di rute ini' : ' di Jawa'} (OpenStreetMap)</div>${bars}</div>`;
+  const lc = st.all - (st.fly || 0) - (st.under || 0);
+  return `<div class="jstats"><div class="jstot"><b>${lc.toLocaleString('id-ID')}</b> perlintasan sebidang${st.fly || st.under ? ` + ${((st.fly || 0) + (st.under || 0)).toLocaleString('id-ID')} flyover/underpass` : ''}${lineId ? ' di rute ini' : ' di Jawa'} (OpenStreetMap)</div>${bars}</div>`;
+}
+
+/* ---------- station photos & extras (Wikidata P18 / Commons, Daop & km from id.wikipedia) ---------- */
+let SX = null, sxLoading = null;
+function loadSX() { if (SX) return Promise.resolve(SX); return (sxLoading ||= getJSON('/data/stations_x.json').then((d) => { SX = d.s; return SX; }).catch((e) => { sxLoading = null; throw e; })); }
+function stPhoto(id, cls = '') {
+  const x = SX?.[id];
+  if (!SX) return `<div class="sph ${cls} loading" data-sph="${esc(id)}"></div>`;
+  if (!x?.img) return `<div class="sph ${cls} none"><svg class="i"><use href="#i-cam"/></svg><span>Belum ada foto stasiun di Wikimedia Commons</span></div>`;
+  const m = x.img;
+  return `<figure class="sph ${cls}"><a href="${esc(m.p)}" target="_blank" rel="noopener"><img src="${esc(m.t)}" alt="Stasiun ${esc(stOf(id)?.name || id)}" width="${m.w}" height="${m.h}" loading="lazy" decoding="async"></a><figcaption>Foto <a href="${esc(m.p)}" target="_blank" rel="noopener">${esc(m.a)}</a>, ${m.lu ? `<a href="${esc(m.lu)}" target="_blank" rel="noopener">${esc(m.l)}</a>` : esc(m.l)} · Wikimedia Commons</figcaption></figure>`;
+}
+function stFacts(id) {
+  const x = SX?.[id]; if (!x) return '';
+  const km = (x.km || [])[0];
+  const f = [x.daop && `<span><b>${esc(x.daop)}</b></span>`, km && `<span>km <b>${Math.floor(km[0])}+${String(Math.round((km[0] % 1) * 1000)).padStart(3, '0')}</b>${km[1]?.length ? ' lintas ' + esc(km[1][0]) + '–' + esc(km[1][km[1].length - 1]) : ''}</span>`, x.wp && `<a href="https://id.wikipedia.org/wiki/${encodeURIComponent(x.wp.replace(/ /g, '_'))}" target="_blank" rel="noopener">Wikipedia</a>`].filter(Boolean);
+  return f.length ? `<div class="sfacts">${f.join('')}</div>` : '';
+}
+function stationPop(id) {
+  const s = stOf(id); if (!s) return;
+  const html = () => `<div id="scard" class="tcard scard" role="dialog" aria-label="Stasiun ${esc(s.name)}"><div class="th"><div class="tt2"><b>${esc(s.name)}</b><span>${esc(s.id)} · ${esc(sysName(s))}</span></div><button type="button" class="x" data-act="card-close" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button></div>${stPhoto(id, 'pop')}${stFacts(id)}</div>`;
+  S.card = null; S.jcard = null; S.scard = id;
+  cardPop.options.anchor = 'bottom';
+  cardPop.setLngLat([s.lng, s.lat]).setHTML(html()).addTo(map); hoverPop.remove();
+  if (!SX) loadSX().then(() => { if (S.scard === id) cardPop.setHTML(html()); }).catch(() => {});
 }
 
 /* ---------- views ---------- */
@@ -619,6 +701,8 @@ function stationDetail(id) {
   const filt = S.detail.line && ls.some((l) => l.id === S.detail.line) ? S.detail.line : null;
   const shown = deps.filter((d) => !filt || d.trip.line === filt).slice(0, 24);
   let h = `<div class="dhead"><span class="lb" style="background:${esc(ls[0]?.color || '#888')}"><svg class="i" style="fill:#fff"><use href="#i-train"/></svg></span><div class="t"><b>${esc(s.name)}</b><span>${esc(s.id)} · ${esc(sysName(s))}</span></div></div>`;
+  if (!SX) loadSX().then(() => { if (S.detail?.type === 'station' && S.detail.id === id) render(true); }).catch(() => {});
+  h += `<div class="sbox">${stPhoto(id, 'panel')}${stFacts(id)}</div>`;
   h += `<div class="acts"><button type="button" class="btn small" data-act="fav"><svg class="i"><use href="#i-star"/></svg>${S.fav === id ? 'Stasiunku ✓' : 'Jadikan stasiunku'}</button><button type="button" class="btn small" data-act="plan-from"><svg class="i"><use href="#i-route"/></svg>Rute dari sini</button><button type="button" class="btn small" data-act="plan-to">Rute ke sini</button><button type="button" class="btn small" data-act="fit"><svg class="i"><use href="#i-pin"/></svg>Peta</button></div>`;
   h += `<div class="sech"><h2>Keberangkatan</h2><span>${fmt(c.sec)} WIB · ${dayLabel(c.date)}</span></div>`;
   if (ls.length > 1) h += lineChips(ls, filt);
@@ -966,7 +1050,7 @@ function writeHash(push) {
   if ((!d || d.type === 'journey') && S.tab !== 'peta') f.push('tab=' + S.tab);
   if (S.tab === 'rute' && S.plan.from && S.plan.to && (!d || d.type === 'journey')) { f.push('from=' + S.plan.from, 'to=' + S.plan.to); if (S.plan.date) f.push('pd=' + S.plan.date); if (S.plan.time != null) f.push('pt=' + fmt(S.plan.time).replace('.', '')); }
   if (S.at) { const c = clock(); f.push('t=' + fmt(c.sec).replace('.', '') + '&d=' + c.date + ((S.at.speed || 1) !== 1 ? '&x=' + S.at.speed : '')); }
-  if (S.layers.jpl) f.push('jpl=1');
+  if (S.layers.jpl) { f.push('jpl=1'); if (S.jf.cats.length) f.push('js=' + S.jf.cats.join(',')); if (S.jf.daop) f.push('jd=' + encodeURIComponent(S.jf.daop.replace(' ', ''))); }
   if (map) { const c = map.getCenter(); f.push(`@${c.lat.toFixed(5)},${c.lng.toFixed(5)},${map.getZoom().toFixed(1)}`); }
   const url = location.pathname + (f.length ? '#' + f.join('&') : '');
   try { push ? history.pushState(null, '', url) : history.replaceState(null, '', url); } catch {}
@@ -981,6 +1065,7 @@ function readHash(initial) {
     setClock(date, +t.slice(0, 2) * 3600 + +t.slice(2) * 60, Math.min(600, Math.max(1, +kv.x || 1)));
   }
   if (['jalur', 'stasiun', 'rute'].includes(kv.tab)) S.tab = kv.tab;
+  if (kv.js || kv.jd) { S.jf = { cats: (kv.js || '').split(',').filter((k) => JCAT[k]), daop: kv.jd ? decodeURIComponent(kv.jd).replace(/^(Daop|Divre)(\d)/, '$1 $2') : '' }; LS.set('jf', S.jf); if (!initial) { jplRefresh(); jplLegend(); } }
   if (kv.jpl === '1' || kv.jpl === '0') { S.layers.jpl = kv.jpl === '1'; if (!initial && map) setJPL(S.layers.jpl, true); }
   if (kv.from && kv.to) { S.plan = { from: kv.from, to: kv.to, date: kv.pd || null, time: kv.pt ? +kv.pt.slice(0, 2) * 3600 + +kv.pt.slice(2) * 60 : null }; S.planPending = true; }
   S.detail = kv.train ? { type: 'train', id: kv.train, date: kv.td } : kv.station ? { type: 'station', id: kv.station } : kv.line ? { type: 'line', id: kv.line } : null;
@@ -1030,8 +1115,8 @@ function layersPanel() {
     <div class="grp">Kereta</div>${row('krl', 'KRL Commuter Line', '#E30A16')}${row('mrt', 'MRT Jakarta', '#CE0037')}${row('lrtj', 'LRT Jakarta', '#F16227')}${row('jbdb', 'LRT Jabodebek', '#20409A')}${row('bandara', 'KA Bandara & Skytrain', '#F2A900')}${row('whoosh', 'Whoosh & feeder', '#8C0023')}${row('regional', 'Commuter daerah', '#3B7A8C')}${row('kai', 'KA antarkota', '#6A2C91')}
     <div class="grp">Peta</div>${row('stations', 'Stasiun')}${row('labels', 'Nama dan kode')}${row('net', 'Jaringan rel OpenStreetMap')}
     <div class="grp">Perlintasan sebidang (JPL)</div>${row('jpl', 'Tampilkan perlintasan sebidang', '#1E9E4A')}
-    <div class="jleg">${Object.values(JCAT).map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}</div>
-    ${S.layers.jpl && JPL ? jplStatsHtml() : ''}<p class="jsrc">Data © kontributor OpenStreetMap (ODbL). Banyak titik belum punya data palang/lampu, jadi "belum terdata" bukan berarti tidak aman.</p>`;
+    ${S.layers.jpl ? jplFilterHtml() : `<div class="jleg">${Object.values(JCAT).map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('')}</div>`}
+    <p class="jsrc">Data © kontributor OpenStreetMap (ODbL), dibersihkan (duplikat multi-jalur digabung, rel nonaktif/industri & jembatan dibuang). KM & Daop: perkiraan dari infobox stasiun Wikipedia. Foto: Wikimedia Commons.</p>`;
 }
 
 async function share() {
@@ -1061,9 +1146,10 @@ function bindUI() {
   bindSheet();
   if (S.planPending) { S.planPending = false; runPlan(false); }
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-jpl],[data-open],[data-act],[data-tab],[data-filter],[data-place],[data-sline],[data-pick],[data-setplace],[data-journey],[data-ttdate],[data-ttdir],[data-tthour],[data-speed]');
-    if (!t) { if (e.target.id === 'about') $('#about').hidden = true; return; }
+    const t = e.target.closest('[data-jf],[data-jpl],[data-open],[data-act],[data-tab],[data-filter],[data-place],[data-sline],[data-pick],[data-setplace],[data-journey],[data-ttdate],[data-ttdir],[data-tthour],[data-speed]');
+    if (!t || t === app) { if (e.target.id === 'about') $('#about').hidden = true; return; } // #app carries data-tab for CSS only
     if (t.matches('input') && t.dataset.act !== 'pass') return;
+    if (t.dataset.jf) { if (JPL) jfAct(t.dataset.jf); return; }
     if (t.dataset.jpl) { const i = +t.dataset.jpl; if (!S.layers.jpl) setJPL(true, true); map.jumpTo({ center: jrow(i).p, zoom: Math.max(map.getZoom(), 15.5) }); showJplCard(i); return; }
     if (t.dataset.open) { const [type, ...rest] = t.dataset.open.split(':'); open(type, rest.join(':')); return; }
     if (t.dataset.tab) {

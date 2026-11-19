@@ -124,7 +124,7 @@ await p.click('#b-jpl');
 await p.waitForFunction(() => window.__map.querySourceFeatures('jpl').length > 0, null, { timeout: 20000 }).catch(() => {});
 check(await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'visible' && JSON.parse(localStorage.getItem('sepur:layers')).jpl === true && /jpl=1/.test(location.hash)), 'JPL toggle on: layer visible, saved, in URL');
 await p.waitForTimeout(1500);
-const jpt = await p.evaluate(() => { const f = window.__map.queryRenderedFeatures({ layers: ['jpl-p'] }); const c = window.__map.getCanvas().getBoundingClientRect(); const q = f.length && window.__map.project(f[0].geometry.coordinates); return f.length ? [q.x + c.left, q.y + c.top] : null; });
+const jpt = await p.evaluate(() => { const f = window.__map.queryRenderedFeatures({ layers: ['jpl-p'] }).filter((x) => !['fly', 'under'].includes(x.properties.c)); const c = window.__map.getCanvas().getBoundingClientRect(); const q = f.length && window.__map.project(f[0].geometry.coordinates); return f.length ? [q.x + c.left, q.y + c.top] : null; });
 if (jpt) await p.mouse.click(jpt[0], jpt[1]); await p.waitForTimeout(1200);
 const jt = jpt ? await p.evaluate(() => document.querySelector('.jcard')?.innerText || '') : '';
 check(/Palang/i.test(jt) && /Lampu/i.test(jt) && /openstreetmap|OSM/i.test(jt) && /lewat/i.test(jt), 'crossing click shows card (barrier, light, OSM link, next trains)');
@@ -137,6 +137,32 @@ check(/Perlintasan sebidang/.test(await p.textContent('#view')), 'search finds c
 await p.click('[data-jpl]'); await p.waitForTimeout(1500);
 check(!!(await p.$('.jcard')) && await p.evaluate(() => window.__map.getLayoutProperty('jpl-p', 'visibility') === 'visible'), 'crossing search result opens card and turns layer on');
 await p.fill('#q', ''); await p.click('#b-jpl'); await p.waitForTimeout(300);
+// JPL v2: filters by status and Daop, photos, grade separations
+const clickLL = async (pg, ll, mob) => { const pt = await pg.evaluate(async (ll) => { window.__map.jumpTo({ center: ll, zoom: 16.4 }); await new Promise((r) => setTimeout(r, 1800)); const q = window.__map.project(ll); const c = window.__map.getCanvas().getBoundingClientRect(); return [q.x + c.left, q.y + c.top]; }, ll); if (mob) await pg.touchscreen.tap(pt[0], pt[1]); else await pg.mouse.click(pt[0], pt[1]); await pg.waitForTimeout(1800); };
+const JP = await p.evaluate(async () => { const r = await (await fetch('/data/jpl.json')).json(); const f = (fn) => { const x = r.x.find(fn); return x && [x[1], x[2]]; }; return { ph: f((x) => x[19] >= 0 && x[3] !== 'fly' && x[3] !== 'under'), no: f((x) => x[19] < 0 && x[3] === 'palang' && x[8]), fly: f((x) => x[3] === 'fly' && x[8]) }; });
+await p.click('#b-jpl'); await p.waitForFunction(() => window.__sepurDebug.jplShown().length > 0, null, { timeout: 20000 });
+await p.click('#b-layers'); await p.waitForTimeout(400);
+await p.click('#layers [data-jf="cat:palang"]'); await p.waitForTimeout(800);
+check(await p.evaluate(() => { const f = window.__sepurDebug.jplShown(); const r = window.__map.querySourceFeatures('jpl'); return f.length > 50 && f.every((c) => c === 'palang') && r.length > 0; }) && /js=palang/.test(p.url()), 'JPL status filter (only "berpalang") updates map + URL');
+await p.click('#layers [data-jf="daop:Daop 2"]'); await p.waitForTimeout(800);
+check(await p.evaluate(() => { const S = window.__sepurDebug.S; return S.jf.daop === 'Daop 2' && window.__sepurDebug.jplShown().length > 5; }) && /jd=Daop2/.test(p.url()), 'JPL Daop filter');
+await p.click('#layers [data-jf="reset"]'); await p.waitForTimeout(600);
+check(await p.evaluate(() => window.__sepurDebug.jplShown().length > 4000), 'JPL filter reset shows all');
+await p.click('[data-act="layers-close"]');
+if (JP.ph) { await clickLL(p, JP.ph); }
+const phc = await p.evaluate(() => { const e = document.querySelector('.jcard'); const i = e?.querySelector('.jph img'); return e ? [e.innerText, i ? i.naturalWidth : -1] : null; });
+check(!!phc && phc[1] > 0 && /CC|Public domain|GFDL/i.test(phc[0]) && /Commons/.test(phc[0]) && /Daop/.test(phc[0]) && /KM/.test(phc[0]), 'crossing card shows Commons photo with author/licence, Daop and KM');
+await clickLL(p, JP.no);
+const npc = await p.evaluate(() => document.querySelector('.jcard')?.innerText || '');
+check(/Belum ada foto/.test(npc) && /Mapillary/.test(npc) && /Street View/.test(npc) && /Kelengkapan data/.test(npc), 'crossing without photo: "Belum ada foto" + viewer links + confidence');
+await clickLL(p, JP.fly);
+check(/Flyover/.test(await p.evaluate(() => document.querySelector('.jcard')?.innerText || '')), 'flyover point opens its card');
+await p.click('#b-jpl'); await p.waitForTimeout(300);
+// station photo in panel + popup
+const bd = await p.evaluate(() => { const s = window.__sepurDebug.E.st.get('BD'); return [s.lng, s.lat]; });
+await clickLL(p, bd); await p.waitForTimeout(1500);
+const sp = await p.evaluate(() => [document.querySelector('.sbox img')?.naturalWidth || 0, document.querySelector('.scard img')?.naturalWidth || 0, document.querySelector('.sbox')?.innerText || '']);
+check(sp[0] > 0 && sp[1] > 0 && /CC BY|CC0|Public/.test(sp[2]) && /Daop 2/.test(sp[2]), 'station photo (Wikidata/Commons) with licence in panel and popup');
 check(p.errors.length === 0, 'no page errors on desktop ' + p.errors.join('; '));
 
 // night: urban trains asleep, overnight intercity runs
@@ -159,10 +185,17 @@ check(await m.evaluate(() => document.documentElement.scrollWidth <= innerWidth)
 await m.goto(base + '/#jpl=1&t=0800&d=2026-11-19&@-6.205,106.84,15.8'); await m.reload(); await ready(m);
 await m.waitForFunction(() => window.__map.querySourceFeatures('jpl').length > 0, null, { timeout: 20000 }).catch(() => {});
 await m.waitForTimeout(1500);
-const mj = await m.evaluate(() => { const f = window.__map.queryRenderedFeatures({ layers: ['jpl-p'] }); const c = window.__map.getCanvas().getBoundingClientRect(); const q = f.length && window.__map.project(f[0].geometry.coordinates); return f.length ? [q.x + c.left, q.y + c.top] : null; });
+const mj = await m.evaluate(() => { const f = window.__map.queryRenderedFeatures({ layers: ['jpl-p'] }).filter((x) => !['fly', 'under'].includes(x.properties.c)); const c = window.__map.getCanvas().getBoundingClientRect(); const q = f.length && window.__map.project(f[0].geometry.coordinates); return f.length ? [q.x + c.left, q.y + c.top] : null; });
 if (mj) await m.touchscreen.tap(mj[0], mj[1]); await m.waitForTimeout(1500);
 const mjb = await m.evaluate(() => { const e = document.querySelector('.jcard'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.right, r.top]; });
 check(!!mjb && mjb[0] >= 0 && mjb[1] <= 390 && mjb[2] >= 0, 'mobile: URL #jpl=1 shows crossings, tap opens card on screen');
+const mph = await m.evaluate(async () => { const r = await (await fetch('/data/jpl.json')).json(); const x = r.x.find((x) => x[19] >= 0 && x[3] !== 'fly' && x[3] !== 'under'); return [x[1], x[2]]; });
+{ const pt = await m.evaluate(async (ll) => { window.__map.jumpTo({ center: ll, zoom: 16.4 }); await new Promise((r) => setTimeout(r, 1800)); const q = window.__map.project(ll); const c = window.__map.getCanvas().getBoundingClientRect(); return [q.x + c.left, q.y + c.top]; }, mph); await m.touchscreen.tap(pt[0], pt[1]); await m.waitForTimeout(2000); }
+const mpb = await m.evaluate(() => { const e = document.querySelector('.jcard'); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.right, r.top, e.querySelector('.jph img')?.naturalWidth || 0]; });
+check(!!mpb && mpb[0] >= 0 && mpb[1] <= 390 && mpb[2] >= 0 && mpb[3] > 0, 'mobile: crossing card with photo fits the screen');
+await m.goto(base + '/#t=0800&d=2026-11-19&@-6.9137,107.6022,16.4'); await m.reload(); await ready(m); await m.waitForTimeout(1500);
+{ const pt = await m.evaluate(() => { const s = window.__sepurDebug.E.st.get('BD'); const q = window.__map.project([s.lng, s.lat]); const c = window.__map.getCanvas().getBoundingClientRect(); return [q.x + c.left, q.y + c.top]; }); await m.touchscreen.tap(pt[0], pt[1]); await m.waitForTimeout(2500); }
+check(await m.evaluate(() => window.__sepurDebug.S.detail?.id === 'BD' && document.querySelector('.sbox img')?.naturalWidth > 0 && !!document.querySelector('.scard img')), 'mobile: tap station opens panel + popup with photo');
 
 
 await m.screenshot({ path: `${out}/mob-train.png` });
